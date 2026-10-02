@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": [
+    "hnd1"
+  ],
+  "crons": [
+    {
+      "path": "/api/make-health?hours=26",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/intake/clio-sync",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}

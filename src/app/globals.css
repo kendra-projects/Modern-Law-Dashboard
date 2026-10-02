@@ -1,0 +1,255 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   MODERN LAW — 3-THEME ENGINE
+   Executive Light (default) · Modern Dark · Luxury Evening
+   Semantic tokens as HSL triads; consumed by tailwind.config.ts.
+   ========================================================================== */
+
+@layer base {
+  :root,
+  [data-theme="light"] {
+    --background: 30 33% 97%;
+    --foreground: 222 47% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 12%;
+
+    --primary: 187 81% 22%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 94%;
+    --secondary-foreground: 222 47% 16%;
+
+    --muted: 210 20% 95%;
+    --muted-foreground: 215 16% 42%;
+
+    --accent: 36 96% 52%;
+    --accent-foreground: 222 47% 12%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 34%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 33 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 16% 88%;
+    --input: 220 16% 86%;
+    --ring: 187 81% 30%;
+
+    --sidebar: 220 30% 13%;
+    --sidebar-foreground: 214 22% 84%;
+    --sidebar-border: 220 26% 20%;
+
+    --chart-1: 187 81% 30%;
+    --chart-2: 36 96% 52%;
+    --chart-3: 194 52% 43%;
+    --chart-4: 222 47% 30%;
+    --chart-5: 340 55% 55%;
+
+    --radius: 0.8rem;
+  }
+
+  [data-theme="dark"] {
+    --background: 222 44% 5%;
+    --foreground: 213 31% 91%;
+
+    --card: 222 39% 9%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 222 44% 7%;
+    --popover-foreground: 213 31% 91%;
+
+    --primary: 187 68% 46%;
+    --primary-foreground: 222 47% 6%;
+
+    --secondary: 217 33% 15%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 217 33% 13%;
+    --muted-foreground: 217 17% 62%;
+
+    --accent: 36 96% 58%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 0 66% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 52% 46%;
+    --success-foreground: 222 47% 8%;
+
+    --warning: 36 96% 58%;
+    --warning-foreground: 222 47% 8%;
+
+    --border: 217 30% 17%;
+    --input: 217 30% 18%;
+    --ring: 187 68% 52%;
+
+    --sidebar: 222 45% 6%;
+    --sidebar-foreground: 214 22% 80%;
+    --sidebar-border: 217 30% 15%;
+
+    --chart-1: 187 68% 50%;
+    --chart-2: 36 96% 58%;
+    --chart-3: 194 62% 56%;
+    --chart-4: 260 60% 66%;
+    --chart-5: 152 52% 50%;
+  }
+
+  [data-theme="evening"] {
+    --background: 24 9% 8%;
+    --foreground: 33 30% 90%;
+
+    --card: 24 8% 12%;
+    --card-foreground: 33 30% 90%;
+
+    --popover: 24 8% 11%;
+    --popover-foreground: 33 30% 90%;
+
+    --primary: 36 96% 56%;
+    --primary-foreground: 24 25% 10%;
+
+    --secondary: 26 9% 19%;
+    --secondary-foreground: 33 30% 90%;
+
+    --muted: 26 9% 17%;
+    --muted-foreground: 33 12% 63%;
+
+    --accent: 187 45% 46%;
+    --accent-foreground: 24 25% 10%;
+
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 130 40% 52%;
+    --success-foreground: 24 25% 10%;
+
+    --warning: 36 96% 56%;
+    --warning-foreground: 24 25% 10%;
+
+    --border: 28 10% 22%;
+    --input: 28 10% 24%;
+    --ring: 36 96% 56%;
+
+    --sidebar: 24 10% 6%;
+    --sidebar-foreground: 33 22% 82%;
+    --sidebar-border: 28 10% 18%;
+
+    --chart-1: 36 96% 56%;
+    --chart-2: 187 45% 52%;
+    --chart-3: 20 70% 55%;
+    --chart-4: 45 80% 62%;
+    --chart-5: 340 45% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01", "cv01", "cv03";
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+  }
+  /* Refined scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* A 10px scrollbar under a single-line strip is taller than the content it
+     scrolls, so the automation strip opts out of the global one. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .glass {
+    background: hsl(var(--card) / 0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+  .text-gradient-brand {
+    background: linear-gradient(
+      92deg,
+      hsl(var(--primary)),
+      hsl(var(--accent))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .card-hover {
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: 0 12px 36px -18px hsl(var(--primary) / 0.5);
+  }
+  /* Sanitized blog HTML preview */
+  .prose-blog h2 {
+    @apply font-serif text-xl font-semibold mt-6 mb-2 text-foreground;
+  }
+  .prose-blog h3 {
+    @apply font-serif text-lg font-semibold mt-5 mb-2 text-foreground;
+  }
+  .prose-blog p {
+    @apply text-sm leading-7 text-muted-foreground mb-3;
+  }
+  .prose-blog strong {
+    @apply text-foreground font-semibold;
+  }
+  .prose-blog a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .prose-blog ul {
+    @apply list-disc pl-5 text-sm text-muted-foreground mb-3 space-y-1;
+  }
+
+  /* Logo color swap — Executive Light has a light page background (needs the
+     black mark); Modern Dark and Luxury Evening are both dark backgrounds
+     (need the white mark). Pure CSS so it works on server-rendered pages
+     without a theme-reading client component. */
+  .theme-logo-black {
+    display: none;
+  }
+  .theme-logo-white {
+    display: block;
+  }
+  [data-theme="light"] .theme-logo-black {
+    display: block;
+  }
+  [data-theme="light"] .theme-logo-white {
+    display: none;
+  }
+}
