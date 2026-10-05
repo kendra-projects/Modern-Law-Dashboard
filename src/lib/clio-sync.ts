@@ -4,6 +4,7 @@ import { clioFetch, clioStatus } from "@/lib/clio"
 import { contactMatters, findClioContact, matterTaskNames } from "@/lib/clio-intake"
 import { FOLLOW_UPS } from "@/lib/follow-ups"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { logStep } from "@/lib/intake-step-log"
 import type { IntakeLead } from "@/types/database"
 
 // Staff still do parts of the intake straight in Clio. This brings that work
@@ -27,8 +28,10 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
   const admin = createAdminClient()
   if (!admin) return []
   const changes: string[] = []
+  // Replaces a failed attempt of the same step (e.g. tasks that failed from the
+  // dashboard and were then made by hand).
   const log = (step_key: string, detail: Record<string, unknown>) =>
-    admin.from("intake_steps").insert({ lead_id: lead.id, step_key, state: "done", detail: { action: "detected", ...detail } })
+    logStep(admin, { lead_id: lead.id, step_key, state: "done", detail: { action: "detected", ...detail } })
 
   let contactId = lead.clio_client_contact_id
   if (!contactId) {

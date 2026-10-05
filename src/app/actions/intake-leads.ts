@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import type { Json, TablesInsert } from "@/types/database"
+import type { TablesInsert } from "@/types/database"
 import { getRole, canSeeIntake } from "@/lib/role"
 import { planClioCreate, executeClioPlan, sendClioPortalInvite, createFollowUpTasks } from "@/lib/clio-intake"
 import { consultDay, followUpPlan } from "@/lib/follow-ups"
@@ -12,6 +12,7 @@ import { PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { postMentions, slackEscape } from "@/lib/consult-post"
 import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/slack"
 import { addGrowNoteTo } from "@/lib/grow-sync"
+import { clearFailure, logStep } from "@/lib/intake-step-log"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -97,7 +98,8 @@ export async function assignAdvocate(
 
   if (error) return { ok: false, message: "Could not assign the advocate." }
 
-  await supabase.from("intake_steps").insert({
+  // Replaces the earlier row when the advocate is changed.
+  await logStep(supabase, {
     lead_id: leadId,
     step_key: "advocate_assigned",
     state: "done",
@@ -209,7 +211,7 @@ export async function sendPortalInvite(leadId: string): Promise<ActionResult> {
       .from("intake_leads")
       .update({ clio_portal_id: String(r.conversationId ?? r.messageId) })
       .eq("id", leadId)
-    await supabase.from("intake_steps").insert({
+    await logStep(supabase, {
       lead_id: leadId,
       step_key: "clio_portal_sent",
       state: "done",
@@ -219,13 +221,14 @@ export async function sendPortalInvite(leadId: string): Promise<ActionResult> {
         members: r.members,
         notes: r.notes,
         by: user.email ?? user.id,
-      } as unknown as Json,
+      },
     })
+    await clearFailure(supabase, leadId, "clio_portal")
     revalidatePath(`/intake/${leadId}`)
     return { ok: true, message: ["Portal invite sent.", ...r.notes].join(" ") }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Clio rejected the portal invite."
-    await supabase.from("intake_steps").insert({
+    await logStep(supabase, {
       lead_id: leadId,
       step_key: "clio_portal",
       state: "failed",
@@ -281,18 +284,19 @@ export async function createFollowUps(leadId: string): Promise<ActionResult> {
       consultDay: consultDay(consultAt),
       tasks: followUpPlan(consultAt),
     })
-    await supabase.from("intake_steps").insert({
+    // Same key as a failed attempt, so this replaces it.
+    await logStep(supabase, {
       lead_id: leadId,
       step_key: "clio_tasks",
       state: "done",
-      detail: { action: "created", assignee: r.assignee, created: r.created, skipped: r.skipped, by: user.email ?? user.id } as unknown as Json,
+      detail: { action: "created", assignee: r.assignee, created: r.created, skipped: r.skipped, by: user.email ?? user.id },
     })
     revalidatePath(`/intake/${leadId}`)
     const extra = r.skipped.length ? ` Already in Clio: ${r.skipped.join(", ")}.` : ""
     return { ok: true, message: `Created ${r.created.length} follow-up task${r.created.length === 1 ? "" : "s"} for ${r.assignee}.${extra}` }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Clio rejected the tasks."
-    await supabase.from("intake_steps").insert({
+    await logStep(supabase, {
       lead_id: leadId,
       step_key: "clio_tasks",
       state: "failed",
@@ -409,12 +413,13 @@ export async function postConsultToSlack(leadId: string, text: string): Promise<
     for (const p of people) if (ids[p.name]) body = body.split(p.token).join(`<@${ids[p.name]}>`)
 
     const posted = await postToChannel(INITIAL_CONSULTS_CHANNEL, body)
-    await supabase.from("intake_steps").insert({
+    await logStep(supabase, {
       lead_id: leadId,
       step_key: "slack_posted",
       state: "done",
       detail: { by, action: "sent", ts: posted.ts, link: posted.link },
     })
+    await clearFailure(supabase, leadId, "slack_post")
     revalidatePath(`/intake/${leadId}`)
     const untagged = people.filter((p) => !ids[p.name]).map((p) => p.name)
     return {
@@ -425,7 +430,7 @@ export async function postConsultToSlack(leadId: string, text: string): Promise<
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Slack post failed."
-    await supabase.from("intake_steps").insert({ lead_id: leadId, step_key: "slack_post", state: "failed", error: msg, detail: { by } })
+    await logStep(supabase, { lead_id: leadId, step_key: "slack_post", state: "failed", error: msg, detail: { by } })
     revalidatePath(`/intake/${leadId}`)
     return { ok: false, message: msg }
   }
@@ -462,13 +467,7 @@ export async function createInClio(leadId: string): Promise<ActionResult> {
     return { ok: false, message: `This lead is ${lead.status}; nothing was created.` }
 
   const step = (step_key: string, state: "done" | "failed", detail: Record<string, unknown>, error?: string) =>
-    supabase.from("intake_steps").insert({
-      lead_id: leadId,
-      step_key,
-      state,
-      detail: { ...detail, by: user.email ?? user.id } as unknown as Json,
-      error: error ?? null,
-    })
+    logStep(supabase, { lead_id: leadId, step_key, state, detail: { ...detail, by: user.email ?? user.id }, error: error ?? null })
 
   let plan
   try {
@@ -496,6 +495,7 @@ export async function createInClio(leadId: string): Promise<ActionResult> {
     await step("clio_matter", "done", { matter_id: r.matterId, display: r.display, action: r.reused ? "reused" : "created", notes: plan.notes })
     if (r.opError) await step("clio_opposing_party", "failed", { matter_id: r.matterId }, r.opError)
     else if (r.opContactId) await step("clio_opposing_party", "done", { contact_id: r.opContactId })
+    await clearFailure(supabase, leadId, "clio_create")
 
     revalidatePath(`/intake/${leadId}`)
     revalidatePath("/intake")
