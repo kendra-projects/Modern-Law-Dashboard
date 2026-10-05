@@ -11,6 +11,7 @@ export type StepDetail = {
   decision?: string
   notes?: string[]
   result?: string
+  matter_name?: string
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
@@ -68,6 +69,18 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
           : "Posted in #initialconsultations"
     case "slack_post":
       return "Slack post failed"
+    case "grow_note":
+      return `Booking note added in Clio Grow${d.matter_name ? `: ${d.matter_name}` : ""}`
+    case "grow_note_rescheduled":
+      return "Reschedule note added in Clio Grow"
+    case "grow_note_canceled":
+      return "Cancellation note added in Clio Grow"
+    case "grow_note_failed":
+      return "Clio Grow note didn't go through"
+    case "grow_match":
+      return d.result === "hired"
+        ? "Only a hired Clio Grow matter found: pick it or wait for the new one"
+        : "Several Clio Grow matters fit: pick the right one"
     case "final_signoff":
       return "Intake approved"
     default:
@@ -79,7 +92,7 @@ export type StepCategory = "booking" | "clio" | "decision" | "system"
 
 export function stepCategory(key: string): StepCategory {
   if (key.startsWith("acuity_")) return "booking"
-  if (key.startsWith("clio_")) return "clio"
+  if (key.startsWith("clio_") || key.startsWith("grow_")) return "clio"
   if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "advocate_assigned" || key === "final_signoff") return "decision"
   return "system"
 }

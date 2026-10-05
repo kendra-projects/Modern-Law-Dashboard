@@ -45,7 +45,7 @@ export function postMentions(lead: Pick<Lead, "consulting_attorney" | "assigned_
 }
 
 // Acuity hands form answers over HTML-escaped ("&amp;") and notes with CRLF line ends.
-const plain = (s: string) =>
+export const plain = (s: string) =>
   s
     .replace(/\r\n?/g, "\n")
     .replace(/&lt;/g, "<")

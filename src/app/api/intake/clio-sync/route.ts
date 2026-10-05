@@ -3,6 +3,7 @@ import { getRole, canSeeIntake } from "@/lib/role"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { syncLeadFromClio, syncOpenLeadsFromClio } from "@/lib/clio-sync"
 import { syncOpenLeadsFromSlack, syncSlackPosts } from "@/lib/slack-sync"
+import { syncGrowForLead, syncOpenLeadsFromGrow } from "@/lib/grow-sync"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -10,7 +11,9 @@ export const maxDuration = 60
 /**
  * Brings work staff did straight in Clio (contact, matter, portal, tasks) and
  * in Slack (the #initialconsultations post) back into the dashboard. Reads
- * both only. `?lead=<id>` syncs one lead (the lead page
+ * both only. It also adds the booking note to the client's Clio Grow matter
+ * once that matter exists (the one write here, a note, never an edit).
+ * `?lead=<id>` syncs one lead (the lead page
  * calls this when it opens); without it, the open leads are synced in a batch.
  *
  * /api/intake is a public route (the Acuity webhook lives there), so this
@@ -31,12 +34,13 @@ async function run(request: NextRequest) {
   const leadId = request.nextUrl.searchParams.get("lead")
   try {
     if (!leadId) {
-      // A Slack hiccup shouldn't hide what Clio found, and the other way round.
-      const [clio, slack] = await Promise.all([
+      // One system's hiccup shouldn't hide what the others found.
+      const [clio, slack, grow] = await Promise.all([
         syncOpenLeadsFromClio().catch(() => ({ checked: 0, changed: 0 })),
         syncOpenLeadsFromSlack().catch(() => ({ checked: 0, changed: 0 })),
+        syncOpenLeadsFromGrow().catch(() => ({ checked: 0, changed: 0 })),
       ])
-      return NextResponse.json({ ok: true, checked: clio.checked, changed: clio.changed + slack.changed, slack })
+      return NextResponse.json({ ok: true, checked: clio.checked, changed: clio.changed + slack.changed + grow.changed, slack, grow })
     }
 
     const admin = createAdminClient()
@@ -47,9 +51,18 @@ async function run(request: NextRequest) {
           .eq("id", leadId)
           .maybeSingle()
       : { data: null }
-    if (!lead || ["canceled", "stopped", "failed"].includes(lead.status)) return NextResponse.json({ ok: true, changes: [] })
-    const [clio, slack] = await Promise.all([syncLeadFromClio(lead).catch(() => []), syncSlackPosts([lead]).catch(() => [])])
-    return NextResponse.json({ ok: true, changes: [...clio, ...(slack.length ? ["slack"] : [])] })
+    if (!lead || ["stopped", "failed"].includes(lead.status)) return NextResponse.json({ ok: true, changes: [] })
+    // A canceled lead only needs its Grow cancellation note.
+    if (lead.status === "canceled") {
+      const grow = await syncGrowForLead(lead.id).catch(() => [])
+      return NextResponse.json({ ok: true, changes: grow.length ? ["grow"] : [] })
+    }
+    const [clio, slack, grow] = await Promise.all([
+      syncLeadFromClio(lead).catch(() => []),
+      syncSlackPosts([lead]).catch(() => []),
+      syncGrowForLead(lead.id).catch(() => []),
+    ])
+    return NextResponse.json({ ok: true, changes: [...clio, ...(slack.length ? ["slack"] : []), ...(grow.length ? ["grow"] : [])] })
   } catch (e) {
     return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : "Sync failed" }, { status: 500 })
   }

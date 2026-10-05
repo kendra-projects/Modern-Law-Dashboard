@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle } from "lucide-react"
+import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle, StickyNote } from "lucide-react"
 import {
   setConflictDecision,
   assignAdvocate,
@@ -11,6 +11,7 @@ import {
   postConsultToSlack,
   sendPortalInvite,
   createFollowUps,
+  addGrowNote,
 } from "@/app/actions/intake-leads"
 import { ADVOCATES, CLIO_CONFLICT_URL } from "@/lib/intake"
 import { Button } from "@/components/ui/button"
@@ -108,6 +109,88 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
       {copied ? "Copied" : label}
     </Button>
+  )
+}
+
+// ── Booking note in Clio Grow ───────────────────────────────────────────────
+export function GrowStep({
+  leadId,
+  noted,
+  extra,
+  failed,
+  match,
+  preview,
+}: {
+  leadId: string
+  /** Set once the booking note is on a Grow matter. */
+  noted: { matterName: string; matterUrl: string; who: string } | null
+  /** Later notes on the same matter (rescheduled, canceled). */
+  extra: string[]
+  failed: string | null
+  /** Matters that could be the one, when the automatic match couldn't be sure. */
+  match: { result: "several" | "hired"; candidates: { id: number; name: string; detail: string; created: string; url: string }[] } | null
+  preview: { subject: string; body: string }
+}) {
+  const { pending, run, note } = useAction()
+  const [ref, setRef] = React.useState("")
+  if (noted)
+    return (
+      <div className="space-y-3">
+        <Hint>
+          The booking details are on {noted.matterName} in Clio Grow ({noted.who}).{extra.length ? ` ${extra.join(" ")}` : ""}
+        </Hint>
+        <Row>
+          <OpenLink href={noted.matterUrl} label="Open in Clio Grow" />
+        </Row>
+      </div>
+    )
+  return (
+    <div className="space-y-3">
+      {failed && <p className="text-xs text-destructive">{failed}</p>}
+      <Hint>
+        {match?.result === "several"
+          ? "More than one Grow matter fits this client, so nothing was added on its own. Pick the one for this consult:"
+          : match?.result === "hired"
+            ? "The client's only Grow matter is a hired one, probably an earlier case. Add the note there, or wait: it is added on its own once a new intake matter appears."
+            : "Waiting for the client's matter in Clio Grow (LexiDesk or staff create it). The note is added on its own once it is there. Or paste the matter's Grow link below."}
+      </Hint>
+      {match && match.candidates.length > 0 && (
+        <ul className="space-y-1.5">
+          {match.candidates.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2">
+              <div className="min-w-0">
+                <a href={c.url} target="_blank" rel="noreferrer" className="text-sm text-foreground hover:underline">
+                  {c.name}
+                </a>
+                <p className="truncate text-xs text-muted-foreground">{[c.detail, `opened ${c.created}`].filter(Boolean).join(" · ")}</p>
+              </div>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={pending} onClick={() => run(() => addGrowNote(leadId, String(c.id)))}>
+                <StickyNote className="h-3.5 w-3.5" /> Add note here
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Row>
+        <input
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          placeholder="Grow matter link or number"
+          aria-label="Clio Grow matter link or number"
+          className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-xs"
+        />
+        <Button size="sm" className="h-8 gap-1.5 text-xs" disabled={pending || !ref.trim()} onClick={() => run(() => addGrowNote(leadId, ref))}>
+          <StickyNote className="h-3.5 w-3.5" /> {pending ? "Adding…" : "Add note"}
+        </Button>
+      </Row>
+      <details className="text-xs">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Preview the note</summary>
+        <div className="mt-1.5">
+          <Box>{[preview.subject, preview.body].join("\n\n")}</Box>
+        </div>
+      </details>
+      {note}
+    </div>
   )
 }
 

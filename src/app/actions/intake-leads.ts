@@ -11,6 +11,7 @@ import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { postMentions, slackEscape } from "@/lib/consult-post"
 import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/slack"
+import { addGrowNoteTo } from "@/lib/grow-sync"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -428,6 +429,20 @@ export async function postConsultToSlack(leadId: string, text: string): Promise<
     revalidatePath(`/intake/${leadId}`)
     return { ok: false, message: msg }
   }
+}
+
+/**
+ * Booking note in Clio Grow, from the lead page: staff picked the client's
+ * matter (or pasted its link) because the automatic match couldn't be sure.
+ * Adds a note only; nothing else on the Grow matter changes.
+ */
+export async function addGrowNote(leadId: string, matterRef: string): Promise<ActionResult> {
+  const { user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+  const r = await addGrowNoteTo(leadId, matterRef, user.email ?? user.id)
+  revalidatePath(`/intake/${leadId}`)
+  return r
 }
 
 // ── Create in Clio ──────────────────────────────────────────────────────────

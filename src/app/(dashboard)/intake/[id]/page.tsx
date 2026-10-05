@@ -4,7 +4,7 @@ import { notFound } from "next/navigation"
 import { ArrowLeft, CalendarClock, Video, Phone, MapPin, Scale, Briefcase, Mail, Smartphone } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ClioStep, ClioStepSkeleton } from "@/components/intake/clio-card"
-import { LexiStep, ConflictStep, AdvocateStep, PortalStep, TextStep, SlackStep, TasksStep, SignoffStep } from "@/components/intake/lead-steps"
+import { GrowStep, LexiStep, ConflictStep, AdvocateStep, PortalStep, TextStep, SlackStep, TasksStep, SignoffStep } from "@/components/intake/lead-steps"
 import { LeadView, BookingDetails, type LeadFact } from "@/components/intake/lead-view"
 import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspace"
 import type { ActivityRow } from "@/components/intake/lead-activity"
@@ -15,6 +15,8 @@ import { CLIO_APP } from "@/lib/clio-intake"
 import { describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
 import { consultPost } from "@/lib/consult-post"
+import { growConfigured, growMatterUrl, growStatus } from "@/lib/grow"
+import { growNote, growState } from "@/lib/grow-note"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -65,6 +67,7 @@ export default async function IntakeDetailPage({
     const d = (s.detail ?? {}) as { by?: string; action?: string }
     if (d.by) return d.by.split("@")[0]
     if (d.action === "detected") return s.step_key.startsWith("slack") ? "Found in Slack" : "Found in Clio"
+    if (d.action === "auto") return "Automatic"
     return undefined
   }
   const whoWhen = (key: string) => {
@@ -106,12 +109,30 @@ export default async function IntakeDetailPage({
   const plan = consultAt ? followUpPlan(consultAt) : []
   const matterName = (lastDone("clio_matter")?.detail as { display?: string } | null)?.display
 
+  // Booking note in Clio Grow: shown once Grow is connected. It is added on
+  // its own, so it only asks for staff when the matter match wasn't sure.
+  const showGrow = growConfigured() && (await growStatus()).connected
+  const grow = growState(allSteps.filter((s) => s.step_key.startsWith("grow_")))
+  const growNoted = grow.noted
+    ? {
+        matterName: grow.noted.matterName ?? `matter #${grow.noted.matterId}`,
+        matterUrl: growMatterUrl(grow.noted.matterId),
+        who: [grow.noted.by ? grow.noted.by.split("@")[0] : "added automatically", day(grow.noted.at)].join(", "),
+      }
+    : null
+  const growExtra = [
+    lastDone("grow_note_rescheduled") ? "A reschedule note was added too." : null,
+    grow.canceled ? "A cancellation note was added too." : null,
+  ].filter((x): x is string => Boolean(x))
+  // Step numbers in the hints move down one when the Grow step is shown.
+  const n = (step: number) => step + (showGrow ? 1 : 0)
+
   const portalDone = Boolean(lead.clio_portal_id) || Boolean(lastDone("clio_portal_sent"))
   const textDone = Boolean(lastDone("clio_text_sent"))
   const tasksDone = Boolean(lastDone("clio_tasks"))
   const approved = lead.status === "done"
-  const needsMatter = !lead.clio_matter_id ? "Needs the Clio matter first (step 5)." : null
-  const needsClear = lead.conflict_status !== "clear" ? "Clear the conflict check first (step 3)." : null
+  const needsMatter = !lead.clio_matter_id ? `Needs the Clio matter first (step ${n(5)}).` : null
+  const needsClear = lead.conflict_status !== "clear" ? `Clear the conflict check first (step ${n(3)}).` : null
   const clientName = fullName(lead.client_first, lead.client_last)
   // Lexi's follow-ups: the conversation link Acuity carries when Lexi booked
   // the consult, and what staff recorded after checking.
@@ -122,7 +143,7 @@ export default async function IntakeDetailPage({
   const yesNo = (v: boolean | null) => (v == null ? null : v ? "Yes" : "No")
 
   // The intake steps, in the order the work is done.
-  const raw: (Omit<WorkspaceStep, "state"> & { ok: boolean | "failed" })[] = [
+  const raw: (Omit<WorkspaceStep, "state"> & { ok: boolean | "failed" | "waiting" })[] = [
     {
       key: "booked",
       title: "Booking received",
@@ -163,6 +184,41 @@ export default async function IntakeDetailPage({
         />
       ),
     },
+    ...(showGrow
+      ? [
+          {
+            key: "grow",
+            title: "Booking note in Clio Grow",
+            ok: grow.noted ? true : grow.failed || grow.match?.result === "several" ? false : ("waiting" as const),
+            summary: grow.noted
+              ? whoWhen("grow_note")
+              : grow.match?.result === "several"
+                ? "Pick the Grow matter"
+                : grow.failed
+                  ? "Didn't go through"
+                  : "Waiting for the Grow matter",
+            description:
+              "The booking details as a note on the client's Clio Grow matter, so the team finds everything in Grow. It is added on its own; a moved or canceled consult adds a short note too.",
+            body: (
+              <GrowStep
+                leadId={lead.id}
+                noted={growNoted}
+                extra={growExtra}
+                failed={grow.failed}
+                match={
+                  grow.match
+                    ? {
+                        result: grow.match.result,
+                        candidates: grow.match.candidates.map((c) => ({ ...c, created: day(c.created_at), url: growMatterUrl(c.id) })),
+                      }
+                    : null
+                }
+                preview={growNote("booked", lead, appt ? { end_time: appt.end_time, location: appt.location, paid: appt.paid, notes: appt.notes } : null, office?.address ?? null)}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       key: "lexi",
       title: "Pause Lexi follow-ups",
@@ -255,7 +311,7 @@ export default async function IntakeDetailPage({
           blocker={
             needsClear ??
             needsMatter ??
-            (!lead.assigned_advocate ? "Assign the advocate first (step 4)." : !consultAt ? "The consult date isn't known yet." : null)
+            (!lead.assigned_advocate ? `Assign the advocate first (step ${n(4)}).` : !consultAt ? "The consult date isn't known yet." : null)
           }
         />
       ),
@@ -276,6 +332,7 @@ export default async function IntakeDetailPage({
     if (ok === true) state = "done"
     else if (ok === "failed") state = "failed"
     else if (halted) state = "stopped"
+    else if (ok === "waiting") state = "waiting"
     else if (!currentSet) {
       state = "current"
       currentSet = true

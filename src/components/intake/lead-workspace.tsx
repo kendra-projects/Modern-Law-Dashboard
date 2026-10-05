@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
-import { Check, X, Ban, ChevronLeft, ChevronRight } from "lucide-react"
+import { Check, X, Ban, Clock3, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils"
 // controls. It opens on the step to do now, so staff see one thing at a time
 // and never scroll past finished work to reach it.
 
-export type StepState = "done" | "current" | "todo" | "failed" | "stopped"
+// "waiting" is a step the system finishes on its own (no one has to act now).
+export type StepState = "done" | "current" | "todo" | "waiting" | "failed" | "stopped"
 export type WorkspaceStep = {
   key: string
   title: string
@@ -27,6 +28,7 @@ const STATE_LABEL: Record<StepState, string> = {
   done: "Done",
   current: "To do now",
   todo: "Later",
+  waiting: "Waiting",
   failed: "Stopped here",
   stopped: "Not needed",
 }
@@ -40,6 +42,7 @@ function Node({ state, n, size = "md" }: { state: StepState; n: number; size?: "
         state === "done" && "border-success/40 bg-success/15 text-success",
         state === "current" && "border-primary bg-primary text-primary-foreground",
         state === "todo" && "border-border bg-transparent text-muted-foreground",
+        state === "waiting" && "border-dashed border-border bg-transparent text-muted-foreground",
         state === "failed" && "border-destructive/40 bg-destructive/15 text-destructive",
         state === "stopped" && "border-border/60 bg-transparent text-muted-foreground/50"
       )}
@@ -53,6 +56,8 @@ function Node({ state, n, size = "md" }: { state: StepState; n: number; size?: "
         <X className="h-3.5 w-3.5" />
       ) : state === "stopped" ? (
         <Ban className="h-3 w-3" />
+      ) : state === "waiting" ? (
+        <Clock3 className="h-3.5 w-3.5" />
       ) : (
         n
       )}
@@ -151,6 +156,7 @@ export function LeadWorkspace({ steps, note }: { steps: WorkspaceStep[]; note?: 
                     step.state === "done" && "bg-success/15 text-success",
                     step.state === "current" && "bg-primary/15 text-primary",
                     step.state === "todo" && "bg-muted text-muted-foreground",
+                    step.state === "waiting" && "bg-muted text-muted-foreground",
                     step.state === "failed" && "bg-destructive/15 text-destructive",
                     step.state === "stopped" && "bg-muted text-muted-foreground"
                   )}

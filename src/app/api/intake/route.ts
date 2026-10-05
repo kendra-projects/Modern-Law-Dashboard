@@ -6,9 +6,21 @@ import {
   isConsultType,
   upsertAppointment,
 } from "@/lib/acuity"
+import { syncGrowForLead } from "@/lib/grow-sync"
 import type { Json } from "@/types/database"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 30
+
+/**
+ * The booking note on the client's Clio Grow matter, right away when the
+ * matter is already there. Capped at a few seconds so Acuity gets its answer
+ * quickly; whatever doesn't finish, the regular sync picks up (it never posts
+ * the same note twice).
+ */
+async function growNoteSoon(leadId: string) {
+  await Promise.race([syncGrowForLead(leadId).catch(() => []), new Promise((r) => setTimeout(r, 8000))])
+}
 
 /**
  * Intake webhook — now Acuity-first.
@@ -97,6 +109,7 @@ export async function POST(req: NextRequest) {
         state: "done",
         error: "Appointment canceled in Acuity.",
       })
+      await growNoteSoon(existing.id)
     }
     return NextResponse.json({ ok: true, id: existing?.id ?? null, canceled: true })
   }
@@ -108,6 +121,7 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+    await growNoteSoon(existing.id)
     return NextResponse.json({ ok: true, id: existing.id, updated: true })
   }
 
@@ -140,6 +154,7 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+    await growNoteSoon(created.id)
   }
   return NextResponse.json({ ok: true, id: created?.id ?? null })
 }
