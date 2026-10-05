@@ -69,6 +69,10 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
           : "Posted in #initialconsultations"
     case "slack_post":
       return "Slack post failed"
+    case "slack_alert":
+      return "Self-schedule alert posted in #clientadvocates"
+    case "slack_alert_failed":
+      return "Self-schedule alert didn't go through"
     case "grow_note":
       return `Booking note added in Clio Grow${d.matter_name ? `: ${d.matter_name}` : ""}`
     case "grow_note_rescheduled":

@@ -7,6 +7,7 @@ import {
   upsertAppointment,
 } from "@/lib/acuity"
 import { syncGrowForLead } from "@/lib/grow-sync"
+import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
 import type { Json } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -154,6 +155,8 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+    // The #clientadvocates heads-up for a consult the client booked themselves.
+    await sendSelfScheduleAlert(created.id).catch(() => {})
     await growNoteSoon(created.id)
   }
   return NextResponse.json({ ok: true, id: created?.id ?? null })

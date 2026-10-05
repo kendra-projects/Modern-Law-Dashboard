@@ -2,6 +2,7 @@ import { CheckCircle2, CircleDashed, AlertTriangle, Link2 } from "lucide-react"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { clioConfigured, clioFetch, clioStatus } from "@/lib/clio"
 import { growConfigured, growFetch, growStatus } from "@/lib/grow"
+import { selfScheduleAlertOn } from "@/lib/self-schedule-alert"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -153,6 +154,12 @@ export default async function IntakeSettingsPage({
               <dt className="text-muted-foreground">Last booking received</dt>
               <dd className="text-foreground">
                 {lastAcuity ? fmt(lastAcuity.created_at) : "None yet (webhook not set?)"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Self-schedule alert</dt>
+              <dd className="text-right text-foreground">
+                {selfScheduleAlertOn() ? "On, posts in #clientadvocates" : "Off (Zapier still sends it)"}
               </dd>
             </div>
           </dl>
