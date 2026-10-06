@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeRangeSelect, useCutoff, withinRange } from "@/components/time-range-select"
 import { cn } from "@/lib/utils"
-import { LeadDetailSkeleton } from "@/components/intake/intake-skeletons"
+import { QueueSkeleton } from "@/components/intake/intake-skeletons"
 import { FilterTransition, FilterLink, PendingArea } from "@/components/intake/filter-transition"
 
 // status → how it reads in the queue. Kept in one place so the queue and the
@@ -100,7 +100,7 @@ export function IntakeClient({ leads }: { leads: IntakeLead[] }) {
   // instead of waiting for the server's first byte.
   return (
     <FilterTransition>
-    <PendingArea fallback={<LeadDetailSkeleton />}>
+    <PendingArea fallback={<QueueSkeleton />}>
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

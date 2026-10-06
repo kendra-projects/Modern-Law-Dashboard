@@ -1,39 +1,13 @@
-import {
-  KpiRowSkeleton,
-  ChartCardSkeleton,
-  CardListSkeleton,
-} from "@/components/shell/page-skeletons"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { getRole } from "@/lib/role"
+import { getWorkspace } from "@/lib/workspace"
+import { ContentOverviewSkeleton } from "@/components/overview/overview-skeleton"
+import { IntakeOverviewSkeleton } from "@/components/intake/intake-skeletons"
 
-export default function Loading() {
-  return (
-    <div className="space-y-5">
-      <KpiRowSkeleton />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <ChartCardSkeleton className="lg:col-span-2" />
-        <ChartCardSkeleton height="h-48" />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <Skeleton className="h-4 w-32" />
-          </CardHeader>
-          <CardContent>
-            <CardListSkeleton rows={2} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-4 w-28" />
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="mx-auto h-32 w-32 rounded-full" />
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
+// The Overview shows a different page per workspace, so its placeholder does
+// too. The role is already fetched for this request (React cache), so this
+// adds no wait.
+export default async function Loading() {
+  const role = await getRole()
+  const intake = role === "intake" || (role === "admin" && getWorkspace() === "intake")
+  return intake ? <IntakeOverviewSkeleton /> : <ContentOverviewSkeleton />
 }

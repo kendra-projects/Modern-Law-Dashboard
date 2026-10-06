@@ -41,7 +41,7 @@ import { KpiCard } from "@/components/overview/kpi-card"
 import { useChartColors } from "@/components/charts/use-chart-colors"
 import { ChartTooltip } from "@/components/charts/chart-tooltip"
 import { cn } from "@/lib/utils"
-import { LeadDetailSkeleton } from "@/components/intake/intake-skeletons"
+import { IntakeOverviewSkeleton } from "@/components/intake/intake-skeletons"
 import { FilterTransition, FilterLink, PendingArea } from "@/components/intake/filter-transition"
 
 // The intake login's home page: the same shape as the content Overview (KPIs,
@@ -213,7 +213,7 @@ export function IntakeOverview({ leads, appts }: { leads: IntakeLead[]; appts: O
 
   return (
     <FilterTransition>
-      <PendingArea fallback={<LeadDetailSkeleton />}>
+      <PendingArea fallback={<IntakeOverviewSkeleton />}>
         <div className="space-y-5">
           <Rise i={0} className="flex flex-wrap items-start justify-between gap-3">
             <div>

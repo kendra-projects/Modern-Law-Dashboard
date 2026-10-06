@@ -1,5 +1,5 @@
-import { QueueSkeleton } from "@/components/intake/intake-skeletons"
+import { IntakeRecoverySkeleton } from "@/components/intake/intake-skeletons"
 
 export default function Loading() {
-  return <QueueSkeleton rows={6} />
+  return <IntakeRecoverySkeleton />
 }
