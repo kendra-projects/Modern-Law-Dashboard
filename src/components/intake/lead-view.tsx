@@ -45,6 +45,7 @@ export function LeadView({
   steps,
   note,
   activity,
+  initialStep,
 }: {
   name: string
   status: string
@@ -52,6 +53,7 @@ export function LeadView({
   steps: WorkspaceStep[]
   note?: string
   activity: ActivityRow[]
+  initialStep?: string
 }) {
   const done = steps.filter((s) => s.state === "done").length
   const pct = Math.round((done / steps.length) * 100)
@@ -105,7 +107,7 @@ export function LeadView({
         </div>
       </header>
 
-      <LeadWorkspace steps={steps} note={note} />
+      <LeadWorkspace steps={steps} note={note} initialKey={initialStep} />
 
       <section className="rounded-xl border border-border bg-card p-5 sm:p-6">
         <h2 className="mb-4 text-sm font-semibold text-foreground">Activity</h2>

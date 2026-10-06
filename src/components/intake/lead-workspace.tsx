@@ -65,9 +65,19 @@ function Node({ state, n, size = "md" }: { state: StepState; n: number; size?: "
   )
 }
 
-export function LeadWorkspace({ steps, note }: { steps: WorkspaceStep[]; note?: string }) {
+export function LeadWorkspace({
+  steps,
+  note,
+  initialKey,
+}: {
+  steps: WorkspaceStep[]
+  note?: string
+  /** Open this step instead of the one to do now (links from Intake Recovery). */
+  initialKey?: string
+}) {
+  const asked = initialKey ? steps.findIndex((s) => s.key === initialKey) : -1
   const firstOpen = steps.findIndex((s) => s.state === "current" || s.state === "failed")
-  const [index, setIndex] = React.useState(firstOpen === -1 ? steps.length - 1 : firstOpen)
+  const [index, setIndex] = React.useState(asked !== -1 ? asked : firstOpen === -1 ? steps.length - 1 : firstOpen)
   const reduce = useReducedMotion()
   const step = steps[index]
   const listRef = React.useRef<HTMLOListElement>(null)

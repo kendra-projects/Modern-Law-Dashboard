@@ -36,8 +36,10 @@ const dueDay = (ymd: string) =>
 
 export default async function IntakeDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string }
+  searchParams: { step?: string }
 }) {
   const supabase = await createClient()
   // Independent reads, fetched together.
@@ -374,6 +376,7 @@ export default async function IntakeDetailPage({
         steps={workspace}
         note={halted ? `This lead is ${lead.status}. Nothing further will run for it.` : undefined}
         activity={activity}
+        initialStep={searchParams.step}
       />
     </div>
   )

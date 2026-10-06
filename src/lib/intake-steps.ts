@@ -15,6 +15,8 @@ export type StepDetail = {
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
+  // A failure staff dismissed from Intake Recovery still reads as the failure.
+  if (s.state === "skipped") return `${describeStep({ ...s, state: "failed" })} (dismissed)`
   const d = (s.detail ?? {}) as StepDetail
   switch (s.step_key) {
     case "acuity_enrich":
@@ -90,6 +92,28 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     default:
       return s.step_key.replace(/_/g, " ")
   }
+}
+
+/** The lead-page step (lead page `?step=`) where a logged step is worked on. */
+export function leadStepFor(stepKey: string): string | null {
+  if (stepKey.startsWith("grow_")) return "grow"
+  if (stepKey === "slack_alert" || stepKey === "slack_alert_failed" || stepKey.startsWith("acuity_")) return "booked"
+  if (stepKey.startsWith("slack_")) return "slack"
+  const map: Record<string, string> = {
+    lexi_followups: "lexi",
+    conflict_check: "conflict",
+    advocate_assigned: "advocate",
+    clio_create: "clio",
+    clio_contact: "clio",
+    clio_matter: "clio",
+    clio_opposing_party: "clio",
+    clio_portal: "portal",
+    clio_portal_sent: "portal",
+    clio_text_sent: "text",
+    clio_tasks: "tasks",
+    final_signoff: "signoff",
+  }
+  return map[stepKey] ?? null
 }
 
 export type StepCategory = "booking" | "clio" | "decision" | "system"

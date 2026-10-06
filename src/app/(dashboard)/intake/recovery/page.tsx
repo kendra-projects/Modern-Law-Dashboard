@@ -3,6 +3,7 @@ import {
   IntakeRecoveryClient,
   type RecoveryRow,
 } from "@/components/intake/intake-recovery-client"
+import { describeStep, leadStepFor } from "@/lib/intake-steps"
 
 export const dynamic = "force-dynamic"
 
@@ -16,7 +17,7 @@ export default async function IntakeRecoveryPage() {
 
   const { data: steps } = await supabase
     .from("intake_steps")
-    .select("id, lead_id, step_key, state, error, updated_at")
+    .select("id, lead_id, step_key, state, error, updated_at, detail")
     .in("state", ["failed", "awaiting_human"])
     .order("updated_at", { ascending: false })
     .limit(200)
@@ -31,15 +32,21 @@ export default async function IntakeRecoveryPage() {
 
   const leadMap = new Map((leads ?? []).map((l) => [l.id, l]))
 
-  const rows: RecoveryRow[] = (steps ?? []).map((s) => ({
-    id: s.id,
-    lead_id: s.lead_id,
-    step_key: s.step_key,
-    state: s.state as RecoveryRow["state"],
-    error: s.error,
-    updated_at: s.updated_at,
-    leadName: nameOf(leadMap.get(s.lead_id)),
-  }))
+  const rows: RecoveryRow[] = (steps ?? []).map((s) => {
+    const step = leadStepFor(s.step_key)
+    return {
+      id: s.id,
+      lead_id: s.lead_id,
+      step_key: s.step_key,
+      state: s.state as RecoveryRow["state"],
+      error: s.error,
+      updated_at: s.updated_at,
+      leadName: nameOf(leadMap.get(s.lead_id)),
+      // What went wrong in plain words, and the lead-page step that fixes it.
+      label: describeStep(s),
+      href: `/intake/${s.lead_id}${step ? `?step=${step}` : ""}`,
+    }
+  })
 
   return <IntakeRecoveryClient rows={rows} />
 }

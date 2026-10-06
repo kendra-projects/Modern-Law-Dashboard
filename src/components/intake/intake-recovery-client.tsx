@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { LifeBuoy, RotateCw, PauseCircle } from "lucide-react"
-import { retryStep } from "@/app/actions/intake-leads"
+import { LifeBuoy, PauseCircle, XCircle, Wrench } from "lucide-react"
+import { dismissStep } from "@/app/actions/intake-leads"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -15,6 +15,10 @@ export type RecoveryRow = {
   error: string | null
   updated_at: string
   leadName: string
+  /** What went wrong, in plain words. */
+  label: string
+  /** The lead page, opened at the step that fixes it. */
+  href: string
 }
 
 function fmt(iso: string) {
@@ -32,27 +36,28 @@ function Row({ row }: { row: RecoveryRow }) {
   const failed = row.state === "failed"
 
   return (
-    <tr className="border-b border-border/60 last:border-0">
+    <tr className="border-b border-border/60 align-top last:border-0">
       <td className="px-4 py-3">
-        <Link href={`/intake/${row.lead_id}`} className="font-medium text-foreground hover:underline">
+        <Link href={row.href} className="font-medium text-foreground hover:underline">
           {row.leadName}
         </Link>
-        <span className="block text-xs text-muted-foreground">{row.step_key}</span>
+        <span className="block text-xs text-muted-foreground" title={row.step_key}>
+          {row.label}
+        </span>
       </td>
       <td className="px-4 py-3">
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-            failed
-              ? "bg-destructive/15 text-destructive"
-              : "bg-accent/15 text-accent"
+            failed ? "bg-destructive/15 text-destructive" : "bg-accent/15 text-accent"
           )}
         >
-          {failed ? <RotateCw className="h-3 w-3" /> : <PauseCircle className="h-3 w-3" />}
-          {failed ? "Failed" : "Awaiting human"}
+          {failed ? <XCircle className="h-3 w-3" /> : <PauseCircle className="h-3 w-3" />}
+          {failed ? "Failed" : "Needs a person"}
         </span>
         {row.error && (
-          <span className="mt-1 block max-w-xs truncate text-xs text-muted-foreground">
+          // Two lines in the table; the whole message on hover and for screen readers.
+          <span className="mt-1 line-clamp-2 block max-w-md break-words text-xs text-muted-foreground" title={row.error}>
             {row.error}
           </span>
         )}
@@ -60,31 +65,32 @@ function Row({ row }: { row: RecoveryRow }) {
       <td className="hidden whitespace-nowrap px-4 py-3 text-xs text-muted-foreground sm:table-cell">
         {fmt(row.updated_at)}
       </td>
-      <td className="px-4 py-3 text-right">
-        {failed ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            className="gap-1.5"
-            onClick={() =>
-              startTransition(async () => {
-                const r = await retryStep(row.id)
-                setMsg(r.message)
-              })
-            }
-          >
-            <RotateCw className="h-3.5 w-3.5" /> Retry
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-1.5">
+          <Button asChild size="sm" variant={failed ? "outline" : "default"} className="gap-1.5">
+            <Link href={row.href}>
+              <Wrench className="h-3.5 w-3.5" /> {failed ? "Fix" : "Open"}
+            </Link>
           </Button>
-        ) : (
-          <Link
-            href={`/intake/${row.lead_id}`}
-            className="text-xs text-primary hover:underline"
-          >
-            Open
-          </Link>
-        )}
-        {msg && <span className="mt-1 block text-[11px] text-muted-foreground">{msg}</span>}
+          {failed && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              className="text-muted-foreground"
+              onClick={() => {
+                if (!window.confirm(`Dismiss "${row.label}" for ${row.leadName}? Only do this if it was done another way or isn't needed.`)) return
+                startTransition(async () => {
+                  const r = await dismissStep(row.id)
+                  setMsg(r.ok ? null : r.message)
+                })
+              }}
+            >
+              Dismiss
+            </Button>
+          )}
+        </div>
+        {msg && <span className="mt-1 block text-right text-[11px] text-destructive">{msg}</span>}
       </td>
     </tr>
   )
@@ -98,8 +104,8 @@ export function IntakeRecoveryClient({ rows }: { rows: RecoveryRow[] }) {
           Intake Recovery
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Steps that failed or are waiting on a person. Retry re-queues a failed
-          step; the orchestrator runs it again from where it stopped.
+          Steps that failed or are waiting on a person. Fix opens the lead at that step, where
+          it can be done again; Dismiss clears a failure that was handled another way.
         </p>
       </div>
 
@@ -108,7 +114,7 @@ export function IntakeRecoveryClient({ rows }: { rows: RecoveryRow[] }) {
           <LifeBuoy className="h-8 w-8 text-muted-foreground/60" />
           <p className="mt-3 text-sm font-medium text-foreground">Nothing stuck</p>
           <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-            Failed steps and human-gate pauses show up here so nothing quietly
+            Failed steps and decisions waiting on a person show up here so nothing quietly
             falls through.
           </p>
         </div>
@@ -117,7 +123,7 @@ export function IntakeRecoveryClient({ rows }: { rows: RecoveryRow[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Lead · step</th>
+                <th className="px-4 py-3 font-medium">Lead · what needs doing</th>
                 <th className="px-4 py-3 font-medium">State</th>
                 <th className="hidden px-4 py-3 font-medium sm:table-cell">Updated</th>
                 <th className="px-4 py-3" />

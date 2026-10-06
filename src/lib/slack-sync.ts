@@ -2,6 +2,7 @@ import "server-only"
 
 import { channelHistory, INITIAL_CONSULTS_CHANNEL, messageLink, slackConfigured } from "@/lib/slack"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { clearFailure } from "@/lib/intake-step-log"
 import type { IntakeLead } from "@/types/database"
 
 // Staff also post consults in #initialconsultations by hand. This finds those
@@ -57,6 +58,7 @@ export async function syncSlackPosts(leads: Lead[]): Promise<string[]> {
       state: "done",
       detail: { action: "detected", ts: post.ts, link: messageLink(INITIAL_CONSULTS_CHANNEL, post.ts) },
     })
+    await clearFailure(admin, lead.id, "slack_post")
     found.push(lead.id)
   }
   return found

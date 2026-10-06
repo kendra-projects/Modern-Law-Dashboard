@@ -112,26 +112,29 @@ export async function assignAdvocate(
 }
 
 /**
- * Recovery: re-arm a failed intake step so the orchestrator picks it up again.
- * We only reset our own state (→ pending, error cleared); the actual re-run
- * happens when the step runner exists. API-free, works today.
+ * Recovery: clear a failure that no longer matters (done some other way, or
+ * not needed for this lead). The row stays in the lead's history marked
+ * dismissed; the step itself is still done from the lead page.
  */
-export async function retryStep(stepId: string): Promise<ActionResult> {
+export async function dismissStep(stepId: string): Promise<ActionResult> {
   const { supabase, user } = await requireUser()
   if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
 
-  const { data: step, error } = await supabase
+  const { data: row } = await supabase.from("intake_steps").select("lead_id, state, detail").eq("id", stepId).maybeSingle()
+  if (!row) return { ok: false, message: "Step not found." }
+  if (row.state !== "failed") return { ok: false, message: "Only failed steps can be dismissed." }
+
+  const detail = { ...((row.detail ?? {}) as Record<string, unknown>), dismissed_by: user.email ?? user.id }
+  const { error } = await supabase
     .from("intake_steps")
-    .update({ state: "pending", error: null })
+    .update({ state: "skipped", detail, updated_at: new Date().toISOString() })
     .eq("id", stepId)
-    .select("lead_id, step_key")
-    .maybeSingle()
-
-  if (error) return { ok: false, message: "Could not queue the retry." }
+  if (error) return { ok: false, message: "Could not dismiss it." }
 
   revalidatePath("/intake/recovery")
-  if (step?.lead_id) revalidatePath(`/intake/${step.lead_id}`)
-  return { ok: true, message: `Re-queued ${step?.step_key ?? "step"}.` }
+  revalidatePath(`/intake/${row.lead_id}`)
+  return { ok: true, message: "Dismissed." }
 }
 
 /**
@@ -369,6 +372,9 @@ export async function markClientMessage(leadId: string, kind: "text" | "portal" 
     detail: { by: user.email ?? user.id },
   })
   if (error) return { ok: false, message: "Could not save." }
+  // Done by hand, so an earlier failed attempt no longer needs anyone.
+  if (kind === "slack") await clearFailure(supabase, leadId, "slack_post")
+  if (kind === "portal") await clearFailure(supabase, leadId, "clio_portal")
 
   revalidatePath(`/intake/${leadId}`)
   return {

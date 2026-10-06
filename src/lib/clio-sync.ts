@@ -4,7 +4,7 @@ import { clioFetch, clioStatus } from "@/lib/clio"
 import { contactMatters, findClioContact, matterTaskNames } from "@/lib/clio-intake"
 import { FOLLOW_UPS } from "@/lib/follow-ups"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { logStep } from "@/lib/intake-step-log"
+import { clearFailure, logStep } from "@/lib/intake-step-log"
 import type { IntakeLead } from "@/types/database"
 
 // Staff still do parts of the intake straight in Clio. This brings that work
@@ -60,6 +60,8 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
         .update({ clio_matter_id: matterId, ...(EARLY.includes(lead.status) ? { status: "matter_created" as const } : {}) })
         .eq("id", lead.id)
       await log("clio_matter", { matter_id: fits[0].id, display: fits[0].display_number })
+      // Staff made it in Clio themselves, so a failed Create in Clio is settled.
+      await clearFailure(admin, lead.id, "clio_create")
       changes.push("matter")
     }
   }
@@ -83,6 +85,7 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
         .eq("state", "done")
         .limit(1)
       if (!marked?.length) await log("clio_portal_sent", { conversation_id: portal.id })
+      await clearFailure(admin, lead.id, "clio_portal")
       changes.push("portal")
     }
   }
