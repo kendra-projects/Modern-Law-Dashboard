@@ -128,7 +128,7 @@ export function GrowStep({
   extra: string[]
   failed: string | null
   /** Matters that could be the one, when the automatic match couldn't be sure. */
-  match: { result: "several" | "hired"; candidates: { id: number; name: string; detail: string; created: string; url: string }[] } | null
+  match: { result: "several" | "hired"; candidates: { id: string | number; name: string; detail: string; created: string; url: string }[] } | null
   preview: { subject: string; body: string }
 }) {
   const { pending, run, note } = useAction()
@@ -175,8 +175,8 @@ export function GrowStep({
         <input
           value={ref}
           onChange={(e) => setRef(e.target.value)}
-          placeholder="Grow matter link or number"
-          aria-label="Clio Grow matter link or number"
+          placeholder="Grow matter link"
+          aria-label="Clio Grow matter link"
           className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-xs"
         />
         <Button size="sm" className="h-8 gap-1.5 text-xs" disabled={pending || !ref.trim()} onClick={() => run(() => addGrowNote(leadId, ref))}>

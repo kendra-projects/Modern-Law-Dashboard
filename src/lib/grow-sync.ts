@@ -22,15 +22,15 @@ export const GROW_LEAD_COLUMNS =
 export type GrowLead = GrowNoteLead & Pick<IntakeLead, "id" | "status" | "created_at">
 
 type GrowMatter = {
-  id: number
+  id: string | number
   description?: string | null
   type?: string | null
   status?: string | null
   status_category?: string | null
   created_at: string
-  client?: { id: number; full_name?: string | null; phone_number?: string | null; primary_email?: string | null } | null
+  client?: { id: string | number; full_name?: string | null; phone_number?: string | null; primary_email?: string | null } | null
 }
-type GrowContact = { id: number; emails?: string[] | null; phone_numbers?: string[] | null }
+type GrowContact = { id: string | number; emails?: string[] | null; phone_numbers?: string[] | null }
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>
 
 const autoOn = () => process.env.GROW_AUTO_NOTES !== "off"
@@ -72,8 +72,8 @@ async function mattersCreatedSince(since: Date): Promise<GrowMatter[]> {
 }
 
 /** The Grow contacts that are this client: same email or same phone number. */
-async function contactIds(lead: GrowLead): Promise<Set<number>> {
-  const ids = new Set<number>()
+async function contactIds(lead: GrowLead): Promise<Set<string | number>> {
+  const ids = new Set<string | number>()
   const email = lead.email?.trim().toLowerCase() || null
   const phone = digits(lead.phone)
   for (const query of [email, phone.length === 10 ? phone : null]) {
@@ -94,7 +94,7 @@ async function contactIds(lead: GrowLead): Promise<Set<number>> {
  * matters are offered to staff but never picked on their own (a returning
  * client's new consult usually gets a new matter).
  */
-function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<number>) {
+function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<string | number>) {
   const email = lead.email?.trim().toLowerCase() || null
   const phone = digits(lead.phone)
   const mine = matters.filter(
@@ -267,14 +267,16 @@ export async function syncOpenLeadsFromGrow() {
 
 /**
  * From the lead page: put the booking note on the matter staff chose (one of
- * the candidates, or a Grow link or number they pasted).
+ * the candidates, or a Grow matter link they pasted).
  */
 export async function addGrowNoteTo(leadId: string, matterRef: string, by: string): Promise<{ ok: boolean; message: string }> {
   const admin = createAdminClient()
   if (!admin) return { ok: false, message: "The server isn't set up for this (service key missing)." }
   if (!(await growStatus()).connected) return { ok: false, message: "Clio Grow isn't connected yet (Intake Settings)." }
-  const matterId = matterRef.match(/(\d{3,})(?!.*\d{3,})/)?.[1]
-  if (!matterId) return { ok: false, message: "Paste a Clio Grow matter link or its number." }
+  // A Grow link (grow.clio.com/matters/<id>) or the bare id; Grow ids are ULIDs, not numbers.
+  const ref = matterRef.trim()
+  const matterId = ref.match(/\/matters\/([0-9A-Za-z]+)/)?.[1] ?? ref.match(/^[0-9A-Za-z]+$/)?.[0]
+  if (!matterId) return { ok: false, message: "Paste the Clio Grow matter link." }
 
   const { data } = await admin.from("intake_leads").select(GROW_LEAD_COLUMNS).eq("id", leadId).maybeSingle()
   if (!data) return { ok: false, message: "Lead not found." }
@@ -301,6 +303,6 @@ export async function addGrowNoteTo(leadId: string, matterRef: string, by: strin
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Clio Grow didn't take the note."
     await setStep(admin, leadId, "grow_note_failed", "failed", { by }, msg)
-    return { ok: false, message: msg.includes("(404)") ? "No Clio Grow matter has that number." : msg }
+    return { ok: false, message: msg.includes("(404)") ? "No Clio Grow matter has that link." : msg }
   }
 }

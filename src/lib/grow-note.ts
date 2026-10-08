@@ -138,7 +138,8 @@ export function growNote(
 // grow_note_failed      the latest failed attempt
 // grow_match            more than one matter fits (or only a hired one), for staff to pick
 
-export type GrowCandidate = { id: number; name: string; detail: string; created_at: string }
+// Grow ids are ULIDs like 01M4CAXGV5PTNK0V23124HZE32 (the id in grow.clio.com/matters/...).
+export type GrowCandidate = { id: string | number; name: string; detail: string; created_at: string }
 
 type StepRow = Pick<IntakeStep, "step_key" | "state" | "detail" | "error" | "created_at" | "updated_at">
 
