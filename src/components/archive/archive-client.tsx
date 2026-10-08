@@ -505,6 +505,15 @@ function DetailDrawer({
                     <div className="flex h-24 items-center justify-center text-muted-foreground">
                       <Loader2 className="h-5 w-5 animate-spin" />
                     </div>
+                  ) : row.consult && !rawTranscript && !cleanTranscript ? (
+                    // Zoom's AI summary comes for every meeting; the transcript
+                    // only when the meeting was recorded to the cloud.
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm leading-relaxed text-muted-foreground">
+                      <p className="font-medium text-foreground">No transcript from Zoom</p>
+                      <p className="mt-1">
+                        {"Zoom only sends a transcript when the meeting is recorded to the cloud, usually within an hour of the summary. This one wasn't, or it hasn't arrived yet. The summary on the Overview tab comes either way."}
+                      </p>
+                    </div>
                   ) : (
                     <>
                       <TranscriptBlock
