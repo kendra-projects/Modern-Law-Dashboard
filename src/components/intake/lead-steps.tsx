@@ -123,7 +123,7 @@ export function GrowStep({
 }: {
   leadId: string
   /** Set once the booking note is on a Grow matter. */
-  noted: { matterName: string; matterUrl: string; who: string } | null
+  noted: { matterName: string; matterUrl: string; who: string; nameWarning?: string | null } | null
   /** Later notes on the same matter (rescheduled, canceled). */
   extra: string[]
   failed: string | null
@@ -136,6 +136,9 @@ export function GrowStep({
   if (noted)
     return (
       <div className="space-y-3">
+        {noted.nameWarning && (
+          <p className="rounded-md bg-accent/10 px-2.5 py-1.5 text-xs leading-relaxed text-accent">{noted.nameWarning}</p>
+        )}
         <Hint>
           The booking details are on {noted.matterName} in Clio Grow ({noted.who}).{extra.length ? ` ${extra.join(" ")}` : ""}
         </Hint>

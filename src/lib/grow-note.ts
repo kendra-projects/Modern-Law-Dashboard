@@ -45,6 +45,44 @@ const longDay = (d: Date) =>
 const shortDay = (d: Date) => new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }).format(d)
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+// The booking form's "who referred you" answer is free text, often "No" or "N/A".
+const NOT_A_NAME = /^(no|na|n\s*\/\s*a|none|no\s*one|nobody|nope|not applicable|unknown|return|me|myself|self|-+|\.+)$/i
+
+/**
+ * Who referred the client, when the booking names someone. Only a referral
+ * (attorney, personal, client...) has a person behind it, not Google or TikTok.
+ */
+export function referredBy(lead: Pick<IntakeLead, "referral_source" | "raw_payload">): string | null {
+  if (!/referral/i.test(lead.referral_source ?? "")) return null
+  const answer = (lead.raw_payload as { extras?: { referral_name?: unknown } } | null)?.extras?.referral_name
+  const text = typeof answer === "string" ? answer.trim() : ""
+  return text && !NOT_A_NAME.test(text.replace(/[.!]+$/, "").trim()) ? text : null
+}
+
+const nameWords = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/'/g, "")
+    .replace(/[^a-z]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+
+/**
+ * Whether Grow spells the client's name differently from the booking: a typo,
+ * or a nickname against the legal name. Compares the first and last names
+ * ("Last, First" in Grow is read as First Last); a middle name doesn't count.
+ */
+export function nameDiffers(first: string | null, last: string | null, growName: string | null): boolean {
+  const booked = nameWords([first, last].filter(Boolean).join(" "))
+  const [before, after] = (growName ?? "").split(",", 2)
+  const grow = nameWords(after != null ? `${after} ${before}` : before)
+  if (!booked.length || !grow.length) return false
+  return booked[0] !== grow[0] || booked[booked.length - 1] !== grow[grow.length - 1]
+}
+
 /** Lines with a value only; blocks separated by one blank line. */
 function blocks(...groups: (string | null | false | undefined)[][]) {
   return groups
@@ -122,6 +160,7 @@ export function growNote(
         lead.county && `County: ${lead.county}`,
         lead.opposing_party_name && `Opposing party: ${lead.opposing_party_name}`,
         lead.referral_source && `Referral source: ${lead.referral_source}`,
+        referredBy(lead) && `Referred by: ${referredBy(lead)}`,
         lead.qualified != null && `Qualified lead: ${lead.qualified ? "Yes" : "No"}`,
       ],
       [description && "Description:", description && plain(description)],
@@ -144,7 +183,8 @@ export type GrowCandidate = { id: string | number; name: string; detail: string;
 type StepRow = Pick<IntakeStep, "step_key" | "state" | "detail" | "error" | "created_at" | "updated_at">
 
 export type GrowState = {
-  noted: { matterId: string; matterName: string | null; by: string | null; at: string } | null
+  /** clientName: the client's name as Grow has it, to check against the booking. */
+  noted: { matterId: string; matterName: string | null; clientName: string | null; by: string | null; at: string } | null
   /** The consult time the latest note describes, to spot a reschedule. */
   lastDatetime: string | null
   canceled: boolean
@@ -167,6 +207,7 @@ export function growState(steps: StepRow[]): GrowState {
       ? {
           matterId: String(n.matter_id ?? ""),
           matterName: (n.matter_name as string | undefined) ?? null,
+          clientName: (n.client_name as string | undefined) ?? null,
           by: (n.by as string | undefined) ?? null,
           at: note.created_at,
         }

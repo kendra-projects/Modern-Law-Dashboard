@@ -17,7 +17,7 @@ import { confirmationText, consultMethod, portalInviteText, portalMembers } from
 import { consultLocation } from "@/lib/attorney-zoom"
 import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
-import { growNote, growState } from "@/lib/grow-note"
+import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -120,11 +120,17 @@ export default async function IntakeDetailPage({
   const showGrow =
     growConfigured() && (growNotesApply(lead.created_at) || growSteps.length > 0) && (await growStatus()).connected
   const grow = growState(growSteps)
+  // The skill's check: Acuity and Grow are typed in separately, so a typo or a
+  // nickname can split one client into two spellings.
+  const growNameDiffers = grow.noted ? nameDiffers(lead.client_first, lead.client_last, grow.noted.clientName) : false
   const growNoted = grow.noted
     ? {
         matterName: grow.noted.matterName ?? `matter #${grow.noted.matterId}`,
         matterUrl: growMatterUrl(grow.noted.matterId),
         who: [grow.noted.by ? grow.noted.by.split("@")[0] : "added automatically", day(grow.noted.at)].join(", "),
+        nameWarning: growNameDiffers
+          ? `The booking says "${fullName(lead.client_first, lead.client_last)}" but Grow has "${grow.noted.clientName}". Check which spelling is right before the text, the portal invite or the Slack post goes out.`
+          : null,
       }
     : null
   const growExtra = [
@@ -148,6 +154,7 @@ export default async function IntakeDetailPage({
   const lexiResult = lexiStep ? ((lexiStep.detail as { result?: string } | null)?.result === "none" ? "none" : "paused") : null
 
   const yesNo = (v: boolean | null) => (v == null ? null : v ? "Yes" : "No")
+  const referrer = referredBy(lead)
 
   // The intake steps, in the order the work is done.
   const raw: (Omit<WorkspaceStep, "state"> & { ok: boolean | "failed" | "waiting" })[] = [
@@ -166,6 +173,8 @@ export default async function IntakeDetailPage({
                 ["Email", lead.email],
                 ["Phone", lead.phone],
                 ["Referral source", lead.referral_source],
+                // Only when the booking names someone; most leads come from Google.
+                ...(referrer ? [["Referred by", referrer] as [string, string]] : []),
               ],
             },
             {
@@ -198,7 +207,9 @@ export default async function IntakeDetailPage({
             title: "Booking note in Clio Grow",
             ok: grow.noted ? true : grow.failed || grow.match?.result === "several" ? false : ("waiting" as const),
             summary: grow.noted
-              ? whoWhen("grow_note")
+              ? growNameDiffers
+                ? "Name differs in Grow"
+                : whoWhen("grow_note")
               : grow.match?.result === "several"
                 ? "Pick the Grow matter"
                 : grow.failed

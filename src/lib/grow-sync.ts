@@ -231,7 +231,7 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
       const { matter, candidates, result } = pickMatter(lead, matters, await contactIds(lead))
       const before = growState((steps ?? []).filter((s) => s.lead_id === lead.id)).match
       if (matter) {
-        await writeNote(admin, lead, "booked", String(matter.id), context, { matter_name: candidate(matter).name })
+        await writeNote(admin, lead, "booked", String(matter.id), context, { matter_name: candidate(matter).name, client_name: matter.client?.full_name ?? null })
         changed.add(lead.id)
       } else if (candidates.length) {
         const same = before && before.result === result && before.candidates.map((c) => c.id).join() === candidates.map((c) => c.id).join()
@@ -304,6 +304,7 @@ export async function addGrowNoteTo(leadId: string, matterRef: string, by: strin
       note_id: noteId,
       datetime: lead.consult_datetime,
       matter_name: candidate(matter).name,
+      client_name: matter.client?.full_name ?? null,
     })
     await clearStep(admin, leadId, "grow_match")
     await clearStep(admin, leadId, "grow_note_failed")
