@@ -15,7 +15,7 @@ import { CLIO_APP } from "@/lib/clio-intake"
 import { describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
 import { consultPost } from "@/lib/consult-post"
-import { growConfigured, growMatterUrl, growStatus } from "@/lib/grow"
+import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState } from "@/lib/grow-note"
 import type { IntakeStep } from "@/types/database"
 
@@ -111,10 +111,13 @@ export default async function IntakeDetailPage({
   const plan = consultAt ? followUpPlan(consultAt) : []
   const matterName = (lastDone("clio_matter")?.detail as { display?: string } | null)?.display
 
-  // Booking note in Clio Grow: shown once Grow is connected. It is added on
-  // its own, so it only asks for staff when the matter match wasn't sure.
-  const showGrow = growConfigured() && (await growStatus()).connected
-  const grow = growState(allSteps.filter((s) => s.step_key.startsWith("grow_")))
+  // Booking note in Clio Grow: shown once Grow is connected, for bookings that
+  // came in after that (or that already have a Grow step). It is added on its
+  // own, so it only asks for staff when the matter match wasn't sure.
+  const growSteps = allSteps.filter((s) => s.step_key.startsWith("grow_"))
+  const showGrow =
+    growConfigured() && (growNotesApply(lead.created_at) || growSteps.length > 0) && (await growStatus()).connected
+  const grow = growState(growSteps)
   const growNoted = grow.noted
     ? {
         matterName: grow.noted.matterName ?? `matter #${grow.noted.matterId}`,

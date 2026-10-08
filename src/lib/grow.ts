@@ -18,6 +18,11 @@ const PROVIDER = "clio_grow"
 const REFRESH_EARLY_MS = 60 * 60 * 1000
 const SCOPES = ["grow_contact_read", "grow_matter_read", "grow_matter_note_read", "grow_matter_note_write", "grow_user_read"]
 
+// Notes start with the bookings that came in after Grow was connected (8 Oct
+// 2026). Older leads are left alone, so Grow isn't filled with past consults.
+export const GROW_NOTES_FROM = "2026-10-08T08:40:00Z"
+export const growNotesApply = (leadCreatedAt: string) => Date.parse(leadCreatedAt) >= Date.parse(GROW_NOTES_FROM)
+
 export const GROW_APP = "https://grow.clio.com"
 export const growMatterUrl = (id: string | number) => `${GROW_APP}/matters/${id}`
 

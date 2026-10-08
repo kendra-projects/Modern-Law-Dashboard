@@ -1,6 +1,6 @@
 import "server-only"
 
-import { growFetch, growStatus } from "@/lib/grow"
+import { GROW_NOTES_FROM, growFetch, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep, Json } from "@/types/database"
@@ -184,7 +184,7 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
   const toMatch: GrowLead[] = []
 
   for (const lead of leads) {
-    if (lead.status === "stopped" || lead.status === "failed") continue
+    if (lead.status === "stopped" || lead.status === "failed" || !growNotesApply(lead.created_at)) continue
     const st = growState((steps ?? []).filter((s) => s.lead_id === lead.id))
     try {
       if (lead.status === "canceled") {
@@ -251,7 +251,7 @@ export async function syncGrowForLead(leadId: string): Promise<string[]> {
   return data ? syncGrowNotes([data as unknown as GrowLead], { matchLimit: 1 }) : []
 }
 
-/** The last 30 days of leads, for the open-leads sync. */
+/** The last 30 days of leads (none from before Grow was connected), for the open-leads sync. */
 export async function syncOpenLeadsFromGrow() {
   const admin = createAdminClient()
   if (!admin) return { checked: 0, changed: 0 }
@@ -259,7 +259,7 @@ export async function syncOpenLeadsFromGrow() {
     .from("intake_leads")
     .select(GROW_LEAD_COLUMNS)
     .not("status", "in", "(stopped,failed)")
-    .gte("created_at", new Date(Date.now() - 30 * DAY).toISOString())
+    .gte("created_at", new Date(Math.max(Date.now() - 30 * DAY, Date.parse(GROW_NOTES_FROM))).toISOString())
     .order("created_at", { ascending: false })
   const leads = (data ?? []) as unknown as GrowLead[]
   return { checked: leads.length, changed: (await syncGrowNotes(leads)).length }
