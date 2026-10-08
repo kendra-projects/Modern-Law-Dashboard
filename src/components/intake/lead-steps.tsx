@@ -397,6 +397,7 @@ export function TextStep({
   missing,
   sent,
   textsUrl,
+  zoomFrom,
 }: {
   leadId: string
   text: string | null
@@ -404,12 +405,17 @@ export function TextStep({
   sent: boolean
   /** The matter's Communications, Text messages tab in Clio. */
   textsUrl: string | null
+  /** The attorney whose usual Zoom room filled in a link the booking didn't have. */
+  zoomFrom?: string | null
 }) {
   const { pending, run, note } = useAction()
   if (!text) return <Hint>Needs: {missing.join(", ")}.</Hint>
   return (
     <div className="space-y-3">
       <Box>{text}</Box>
+      {zoomFrom && (
+        <Hint>The booking had no Zoom link, so this is {zoomFrom}&apos;s usual Zoom room from their other bookings.</Hint>
+      )}
       {!sent && <Hint>The button copies the text and opens this matter&apos;s Text messages in Clio: paste it there (Ctrl+V) and send, then mark it sent here.</Hint>}
       <Row>
         {textsUrl ? <CopyAndOpen text={text} href={textsUrl} /> : <CopyButton text={text} label="Copy text" />}

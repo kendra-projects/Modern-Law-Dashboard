@@ -14,6 +14,7 @@ import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { CLIO_APP } from "@/lib/clio-intake"
 import { describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
+import { consultLocation } from "@/lib/attorney-zoom"
 import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState } from "@/lib/grow-note"
@@ -86,7 +87,8 @@ export default async function IntakeDetailPage({
   const { data: office } = lead.office
     ? await supabase.from("office_addresses").select("address").eq("office", lead.office).maybeSingle()
     : { data: null }
-  const location = appt?.location ?? null
+  // A self-scheduled Zoom consult has no link in Acuity: use the attorney's room.
+  const { location, zoomFromAttorney } = await consultLocation(supabase, lead, appt?.location ?? null)
   const method = consultMethod(lead.method, location)
   const sms = confirmationText({
     firstName: lead.client_first,
@@ -218,7 +220,7 @@ export default async function IntakeDetailPage({
                       }
                     : null
                 }
-                preview={growNote("booked", lead, appt ? { end_time: appt.end_time, location: appt.location, paid: appt.paid, notes: appt.notes } : null, office?.address ?? null)}
+                preview={growNote("booked", lead, appt ? { end_time: appt.end_time, location, paid: appt.paid, notes: appt.notes } : null, office?.address ?? null)}
               />
             ),
           },
@@ -291,7 +293,16 @@ export default async function IntakeDetailPage({
       ok: textDone,
       summary: textDone ? whoWhen("clio_text_sent") : "Not sent",
       description: "The consult confirmation in the firm's wording, sent to the client from Clio Texting.",
-      body: <TextStep leadId={lead.id} text={sms.text} missing={sms.missing} sent={textDone} textsUrl={commsUrl(3)} />,
+      body: (
+        <TextStep
+          leadId={lead.id}
+          text={sms.text}
+          missing={sms.missing}
+          sent={textDone}
+          textsUrl={commsUrl(3)}
+          zoomFrom={zoomFromAttorney ? lead.consulting_attorney : null}
+        />
+      ),
     },
     {
       key: "slack",

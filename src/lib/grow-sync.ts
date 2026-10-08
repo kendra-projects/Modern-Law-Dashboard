@@ -1,6 +1,7 @@
 import "server-only"
 
 import { GROW_NOTES_FROM, growFetch, growNotesApply, growStatus } from "@/lib/grow"
+import { consultLocation } from "@/lib/attorney-zoom"
 import { growNote, growState, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep, Json } from "@/types/database"
@@ -115,21 +116,28 @@ function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<string | num
 }
 
 /** Each lead's latest appointment and office address, for the note. */
-async function noteContext(admin: Admin, leadIds: string[]) {
+async function noteContext(admin: Admin, leads: GrowLead[]) {
   const [{ data: appts }, { data: offices }] = await Promise.all([
     admin
       .from("appointments")
       .select("lead_id, canceled, end_time, location, paid:raw->>paid, notes:raw->>notes")
-      .in("lead_id", leadIds)
+      .in("lead_id", leads.map((l) => l.id))
       .order("datetime", { ascending: false }),
     admin.from("office_addresses").select("office, address"),
   ])
   const address = new Map((offices ?? []).map((o) => [o.office as string, o.address as string]))
+  const latest = (leadId: string) => {
+    const rows = (appts ?? []).filter((a) => a.lead_id === leadId)
+    return rows.find((a) => !a.canceled) ?? rows[0] ?? null
+  }
+  // A self-scheduled Zoom consult has no link in Acuity: use the attorney's room.
+  const where = new Map(
+    await Promise.all(leads.map(async (l) => [l.id, (await consultLocation(admin, l, latest(l.id)?.location ?? null)).location] as const))
+  )
   return (lead: GrowLead) => {
-    const rows = (appts ?? []).filter((a) => a.lead_id === lead.id)
-    const appt = rows.find((a) => !a.canceled) ?? rows[0] ?? null
+    const appt = latest(lead.id)
     return {
-      appt: appt ? { end_time: appt.end_time, location: appt.location, paid: appt.paid, notes: appt.notes } : null,
+      appt: appt ? { end_time: appt.end_time, location: where.get(lead.id) ?? appt.location, paid: appt.paid, notes: appt.notes } : null,
       office: lead.office ? address.get(lead.office) ?? null : null,
     }
   }
@@ -179,7 +187,7 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
     .select("lead_id, step_key, state, detail, error, created_at, updated_at")
     .in("lead_id", ids)
     .like("step_key", "grow_%")
-  const context = await noteContext(admin, ids)
+  const context = await noteContext(admin, leads.filter((l) => growNotesApply(l.created_at)))
   const changed = new Set<string>()
   const toMatch: GrowLead[] = []
 
@@ -286,7 +294,7 @@ export async function addGrowNoteTo(leadId: string, matterRef: string, by: strin
 
   try {
     const { data: matter } = await growFetch<{ data: GrowMatter }>(`/matters/${matterId}`)
-    const context = await noteContext(admin, [leadId])
+    const context = await noteContext(admin, [lead])
     const { appt, office } = context(lead)
     const noteId = await postNote(matterId, growNote("booked", lead, appt, office))
     await setStep(admin, leadId, "grow_note", "done", {
