@@ -264,7 +264,7 @@ export default async function IntakeDetailPage({
       key: "advocate",
       title: "Assign the advocate",
       ok: Boolean(lead.assigned_advocate),
-      summary: lead.assigned_advocate ?? "Not assigned",
+      summary: lead.assigned_advocate ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate] ?? lead.assigned_advocate : "Not assigned",
       description: "The advocate signs the confirmation text, joins the client portal and gets the follow-up tasks.",
       body: <AdvocateStep leadId={lead.id} assigned={lead.assigned_advocate} />,
     },

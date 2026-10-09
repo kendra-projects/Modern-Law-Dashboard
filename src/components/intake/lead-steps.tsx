@@ -13,7 +13,7 @@ import {
   createFollowUps,
   addGrowNote,
 } from "@/app/actions/intake-leads"
-import { ADVOCATES, CLIO_CONFLICT_URL } from "@/lib/intake"
+import { ADVOCATES, ADVOCATE_CLIO_NAMES, CLIO_CONFLICT_URL } from "@/lib/intake"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -312,9 +312,10 @@ export function AdvocateStep({ leadId, assigned }: { leadId: string; assigned: s
           className="h-8 rounded-md border border-border bg-background px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Pick an advocate</option>
+          {/* The full name shows; the first name is what's saved (texts and Acuity use it). */}
           {ADVOCATES.map((a) => (
             <option key={a} value={a}>
-              {a}
+              {ADVOCATE_CLIO_NAMES[a] ?? a}
             </option>
           ))}
         </select>
