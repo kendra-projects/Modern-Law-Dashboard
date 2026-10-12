@@ -172,13 +172,15 @@ function ResolvedRow({ item }: { item: SummaryWithIntake }) {
         <p className="truncate text-sm font-medium text-foreground">
           {item.client_name ?? "Client"}
         </p>
-        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        {/* Wraps as whole pieces: on a narrow card the date drops below the
+            matter id instead of breaking mid-date. */}
+        <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
           {item.clio_matter_id ? (
             <a
               href={clioMatterUrl(item.clio_matter_id)}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+              className="inline-flex items-center gap-1 whitespace-nowrap hover:text-foreground hover:underline"
             >
               {item.clio_matter_id}
               <ExternalLink className="h-3 w-3" />
@@ -186,7 +188,7 @@ function ResolvedRow({ item }: { item: SummaryWithIntake }) {
           ) : (
             "No matter"
           )}
-          <span>· filed {shortDate(item.filed_at)}</span>
+          <span className="whitespace-nowrap">· filed {shortDate(item.filed_at)}</span>
         </p>
       </div>
       <StatusBadge meta={attorneyStatusMeta[item.attorney_status]} />
