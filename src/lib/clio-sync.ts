@@ -18,7 +18,7 @@ const DAY = 24 * 60 * 60 * 1000
 
 type Lead = Pick<
   IntakeLead,
-  "id" | "email" | "phone" | "status" | "created_at" | "clio_client_contact_id" | "clio_matter_id" | "clio_portal_id"
+  "id" | "client_first" | "client_last" | "email" | "phone" | "status" | "created_at" | "clio_client_contact_id" | "clio_matter_id" | "clio_portal_id"
 >
 
 type Conversation = { id: number; memberships?: { member?: { id: number; type: string } | null }[] | null }
@@ -122,7 +122,7 @@ export async function syncOpenLeadsFromClio() {
   const open = () =>
     admin
       .from("intake_leads")
-      .select("id, email, phone, status, created_at, clio_client_contact_id, clio_matter_id, clio_portal_id")
+      .select("id, client_first, client_last, email, phone, status, created_at, clio_client_contact_id, clio_matter_id, clio_portal_id")
       .not("status", "in", "(canceled,stopped,failed)")
       .gte("created_at", new Date(Date.now() - 30 * DAY).toISOString())
       .order("created_at", { ascending: false })

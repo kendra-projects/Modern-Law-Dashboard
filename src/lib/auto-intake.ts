@@ -202,12 +202,10 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else if (!(await clioStatus()).connected) waiting.push("Clio matter: Clio is not connected")
     else {
       try {
-        // A contact found only by phone under another name is someone else
-        // sharing the number (a spouse, a parent): staff decide.
+        // A contact with this email or phone under another name is someone
+        // else sharing it (a spouse, a parent who booked): staff decide.
         const found = await findClioContact(lead)
-        const other =
-          found.matchedBy === "phone" && found.contact && nameDiffers(lead.client_first, lead.client_last, found.contact.name)
-        if (other) waiting.push(`Clio matter: the Clio contact with this phone number is "${found.contact!.name}"`)
+        if (found.other) waiting.push(`Clio matter: the Clio contact with this ${found.other.by} is "${found.other.contact.name}"`)
         else if (dry) {
           done.push("create the Clio contact and matter")
           matterComing = true

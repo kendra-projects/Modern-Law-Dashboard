@@ -1,6 +1,7 @@
 import "server-only"
 
 import { clioFetch, clioStatus } from "@/lib/clio"
+import { nameDiffers } from "@/lib/grow-note"
 import type { IntakeLead } from "@/types/database"
 
 // Read-only Clio lookups for one intake lead, plus a dry-run preview of what the
@@ -33,27 +34,36 @@ const digits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "").sl
  * Find the lead's person in Clio. Email first (exact match on the primary
  * email), then phone (last 10 digits). LexiDesk often creates this contact
  * before we ever see the lead, so this is the duplicate guard.
+ *
+ * A contact only counts as the client under the client's own name. A parent
+ * or spouse who booked with their own email or phone comes back as `other`,
+ * so nothing is linked to or made under their contact (a matter was once
+ * opened under the booker's name that way); callers leave it to staff.
  */
-export async function findClioContact(lead: Pick<IntakeLead, "email" | "phone">) {
+export async function findClioContact(lead: Pick<IntakeLead, "email" | "phone" | "client_first" | "client_last">) {
   const fields = "id,name,type,is_client,created_at,primary_email_address,primary_phone_number"
   const search = async (q: string) =>
     (await clioFetch<{ data: ClioContact[] }>(
       `/api/v4/contacts?query=${encodeURIComponent(q)}&fields=${fields}&limit=10`
     )).data
+  const theClient = (c: ClioContact) => !nameDiffers(lead.client_first, lead.client_last, c.name)
+  let other: { contact: ClioContact; by: "email" | "phone" } | null = null
 
   if (lead.email) {
     const email = lead.email.trim().toLowerCase()
-    const hit = (await search(email)).find(
-      (c) => c.primary_email_address?.trim().toLowerCase() === email
-    )
-    if (hit) return { contact: hit, matchedBy: "email" as const }
+    const hits = (await search(email)).filter((c) => c.primary_email_address?.trim().toLowerCase() === email)
+    const hit = hits.find(theClient)
+    if (hit) return { contact: hit, matchedBy: "email" as const, other: null }
+    if (hits[0]) other = { contact: hits[0], by: "email" }
   }
   const phone = digits(lead.phone)
   if (phone.length === 10) {
-    const hit = (await search(phone)).find((c) => digits(c.primary_phone_number) === phone)
-    if (hit) return { contact: hit, matchedBy: "phone" as const }
+    const hits = (await search(phone)).filter((c) => digits(c.primary_phone_number) === phone)
+    const hit = hits.find(theClient)
+    if (hit) return { contact: hit, matchedBy: "phone" as const, other: null }
+    if (hits[0] && !other) other = { contact: hits[0], by: "phone" }
   }
-  return { contact: null, matchedBy: null }
+  return { contact: null, matchedBy: null, other }
 }
 
 export async function contactMatters(contactId: number) {
@@ -194,7 +204,13 @@ export type ClioPlan = {
 /** Resolve everything needed (read-only). Used for the preview and the write. */
 export async function planClioCreate(lead: IntakeLead): Promise<ClioPlan> {
   const notes: string[] = []
-  const { contact } = await findClioContact(lead)
+  const { contact, other } = await findClioContact(lead)
+  if (!contact && other) {
+    throw new Error(
+      `Clio has "${other.contact.name}" on this ${other.by}, not ${[lead.client_first, lead.client_last].filter(Boolean).join(" ")}. ` +
+        "Find or make the client's own contact and matter in Clio; the dashboard picks them up."
+    )
+  }
   const matters = contact ? await contactMatters(contact.id) : []
   const since = Date.now() - 21 * 24 * 60 * 60 * 1000
   const recent = matters.find((m) => new Date(m.created_at).getTime() >= since) ?? null
