@@ -59,12 +59,15 @@ export function confirmationText(x: {
 
   if (missing.length) return { text: null, missing }
 
+  // A name typed all lowercase ("sarah") reads as "Sarah"; any other casing is kept.
+  const first = x.firstName!.trim()
+  const name = first === first.toLowerCase() ? first.replace(/(^|[\s'-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase()) : first
   const when = new Date(x.datetime!)
   const date = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "long", month: "long", day: "numeric" }).format(when)
   const time = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }).format(when)
   return {
     text:
-      `Hi ${x.firstName}! This is ${x.advocate} with Modern Law, we look forward to seeing you on ${date} at ${time} ${via}.\n\n` +
+      `Hi ${name}! This is ${x.advocate} with Modern Law, we look forward to seeing you on ${date} at ${time} ${via}.\n\n` +
       `${detail}\n\nPlease reply here with any questions.`,
     missing,
   }
