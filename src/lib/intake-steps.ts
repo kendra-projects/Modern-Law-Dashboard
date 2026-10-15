@@ -55,6 +55,12 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
         : `Assigned to ${d.advocate ?? "advocate"}`
     case "advocate_auto":
       return `Advocate not assigned yet: ${d.why ?? "nobody is free"}`
+    case "slack_advocate_note":
+      return (d as { skipped?: string }).skipped
+        ? "Slack post already named the advocate"
+        : `Advocate ${d.advocate ?? ""} added under the Slack post`.replace("  ", " ")
+    case "slack_advocate_note_failed":
+      return "Couldn't add the advocate under the Slack post"
     case "conflict_email":
       return s.state === "failed"
         ? `The conflict check email to ${d.to ?? "Kendra"} didn't go out`

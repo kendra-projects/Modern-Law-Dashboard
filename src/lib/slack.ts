@@ -104,15 +104,28 @@ export async function slackStatuses(names: string[]): Promise<Record<string, { t
   return out
 }
 
-/** Post as the bot. Returns the message's ts and a link to it. */
-export async function postToChannel(channel: string, text: string) {
+/** Post as the bot, or reply in a message's thread with `threadTs`. Returns the message's ts and a link to it. */
+export async function postToChannel(channel: string, text: string, threadTs?: string) {
   const r = await slack<{ ts: string; channel: string }>("chat.postMessage", {
     channel,
     text,
+    thread_ts: threadTs,
     unfurl_links: "false",
     unfurl_media: "false",
   })
   return { ts: r.ts, channel: r.channel, link: messageLink(r.channel, r.ts) }
+}
+
+/** One message's text, or null when it's gone. */
+export async function messageText(channel: string, ts: string): Promise<string | null> {
+  const r = await slack<{ messages: { ts: string; text?: string }[] }>("conversations.history", {
+    channel,
+    latest: ts,
+    oldest: ts,
+    inclusive: "true",
+    limit: 1,
+  })
+  return r.messages.find((m) => m.ts === ts)?.text ?? null
 }
 
 /** A channel's messages since `oldest` (unix seconds), newest first, up to 1000. */

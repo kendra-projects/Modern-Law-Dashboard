@@ -17,7 +17,7 @@ import { consultDay, followUpPlan } from "@/lib/follow-ups"
 import { growState, nameDiffers } from "@/lib/grow-note"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
-import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
+import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
@@ -121,10 +121,22 @@ function backingOff(s: State, failureKey: string) {
   )
 }
 
+/** The automation picked the advocate after staff had posted the consult in Slack by hand. */
+function advocateNoteDue(s: State) {
+  const step = (key: string) => s.steps.find((x) => x.step_key === key)
+  return (
+    Boolean(advocateOf(s.lead)) &&
+    (step("advocate_assigned")?.detail as { by?: string } | null)?.by === BY &&
+    (step("slack_posted")?.detail as { action?: string } | null)?.action === "detected" &&
+    !step("slack_advocate_note") &&
+    !backingOff(s, "slack_advocate_note_failed")
+  )
+}
+
 /** Is there anything the automation could still do, without asking Clio or Slack? */
 function workLeft(s: State) {
   const advocate = Boolean(advocateOf(s.lead))
-  const slack = advocate && !s.slack && !backingOff(s, "slack_post")
+  const slack = (advocate && !s.slack && !backingOff(s, "slack_post")) || advocateNoteDue(s)
   if (!s.lead.clio_matter_id) return !backingOff(s, "clio_create") || slack
   return (
     slack ||
@@ -332,6 +344,38 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
           failed.push(`Slack post: ${msg}`)
         }
       }
+    }
+  }
+
+  // ── The advocate, in the thread of a post staff made without one ──
+  // Staff post self-scheduled consults by hand with "Assigned Advocate:
+  // @Client" (who booked). Once the automation picks the advocate, it says so
+  // under that post and tags them, so Slack never lacks the advocate.
+  if (advocateNoteDue(s) && slackConfigured() && !dry) {
+    const ts = (s.steps.find((x) => x.step_key === "slack_posted")?.detail as { ts?: string } | null)?.ts
+    try {
+      const text = ts ? await messageText(INITIAL_CONSULTS_CHANNEL, ts) : null
+      const line = text?.match(/Assigned Advocate:[ \t]*([^\r\n]*)/i)?.[1]?.trim() ?? ""
+      if (!ts || !text || !/^@?(client|other)?$/i.test(line)) {
+        // The post is gone, or already names someone: nothing to add.
+        await step("slack_advocate_note", "done", { skipped: !text ? "post not found" : `post names ${line}` })
+      } else {
+        const name = ADVOCATE_CLIO_NAMES[lead.assigned_advocate!] ?? lead.assigned_advocate!
+        const ids = await slackUserIds([name])
+        const who = ids[name] ? `<@${ids[name]}>` : name
+        const posted = await postToChannel(
+          INITIAL_CONSULTS_CHANNEL,
+          `Assigned Advocate: ${who} (picked automatically by the dashboard)`,
+          ts
+        )
+        await step("slack_advocate_note", "done", { ts: posted.ts, link: posted.link, advocate: lead.assigned_advocate })
+        await clearFailure(admin, lead.id, "slack_advocate_note_failed")
+        done.push("added the advocate under the Slack post")
+      }
+    } catch (e) {
+      const msg = why(e, "Slack didn't take the reply.")
+      await step("slack_advocate_note_failed", "failed", {}, msg)
+      failed.push(`Slack advocate reply: ${msg}`)
     }
   }
 
