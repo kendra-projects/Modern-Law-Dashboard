@@ -273,8 +273,8 @@ function ConflictHitRow({ hit }: { hit: ConflictHit }) {
           hit.name
         )}
         <span className="ml-1.5 text-xs text-muted-foreground">
-          {hit.side === "client" ? "client's name" : "opposing party's name"}
-          {hit.self ? ", this consult's record" : ""}
+          {hit.side === "client" ? "found for the client" : "found for the opposing party"}
+          {hit.self ? ", this consult's own record" : ""}
         </span>
       </p>
       <ul className="mt-0.5 space-y-0.5">

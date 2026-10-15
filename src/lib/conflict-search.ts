@@ -124,10 +124,13 @@ export async function searchConflicts(lead: Lead): Promise<ConflictSearch> {
   const matterId = lead.clio_matter_id ? Number(lead.clio_matter_id) : null
   const email = lead.email?.trim().toLowerCase() || null
   const phone = digits(lead.phone)
-  const isClientRecord = (c: { id?: number | null; email?: string | null; phone?: string | null }) =>
-    (ownId != null && c.id === ownId) ||
-    Boolean(email && c.email?.trim().toLowerCase() === email) ||
-    (phone.length === 10 && digits(c.phone) === phone)
+  // The client's own record: same email, or the linked contact or same phone
+  // under the client's name. A phone shared with someone else (a spouse, a
+  // parent) doesn't make their contact the client's.
+  const emailIs = (e: string | null | undefined) => Boolean(email && e?.trim().toLowerCase() === email)
+  const isClientRecord = (c: Contact) =>
+    emailIs(c.primary_email_address) ||
+    ((c.id === ownId || (phone.length === 10 && digits(c.primary_phone_number) === phone)) && sameName(c.name, client))
 
   const hits: ConflictHit[] = []
   const errors: string[] = []
@@ -140,15 +143,12 @@ export async function searchConflicts(lead: Lead): Promise<ConflictSearch> {
     // The client's own contact, even when it's spelled differently in Clio.
     if (side === "client" && ownId != null && !found.some((c) => c.id === ownId)) {
       const own = await clioFetch<{ data: Contact }>(`/api/v4/contacts/${ownId}?fields=id,name,primary_email_address,primary_phone_number`).catch(() => null)
-      if (own) found.unshift(own.data)
+      if (own && isClientRecord(own.data)) found.unshift(own.data)
     }
     const records = await Promise.all(found.slice(0, PER_SIDE).map(async (c) => ({ c, ...(await manageRecords(c.id)) })))
     for (const { c, rels, matters } of records) {
       const roles: ConflictRole[] = []
-      let self =
-        side === "client"
-          ? isClientRecord({ id: c.id, email: c.primary_email_address, phone: c.primary_phone_number })
-          : lead.clio_op_contact_id != null && String(c.id) === lead.clio_op_contact_id
+      let self = side === "client" ? isClientRecord(c) : lead.clio_op_contact_id != null && String(c.id) === lead.clio_op_contact_id
       for (const m of matters) {
         if (m.id === matterId) continue
         // The opposing party being the firm's client is the conflict to catch.
