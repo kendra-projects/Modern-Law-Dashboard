@@ -61,7 +61,7 @@ export function confirmationText(x: {
 
   // A name typed all lowercase ("sarah") reads as "Sarah"; any other casing is kept.
   const first = x.firstName!.trim()
-  const name = first === first.toLowerCase() ? first.replace(/(^|[\s'-])(\p{L})/gu, (_, p, c) => p + c.toUpperCase()) : first
+  const name = first === first.toLowerCase() ? first.replace(/(^|[\s'-])([a-z])/g, (_, p: string, c: string) => p + c.toUpperCase()) : first
   const when = new Date(x.datetime!)
   const date = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "long", month: "long", day: "numeric" }).format(when)
   const time = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" }).format(when)
