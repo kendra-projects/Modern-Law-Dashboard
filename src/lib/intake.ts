@@ -9,6 +9,9 @@
  */
 export const ADVOCATES = ["Shane", "Mia", "Mandie", "Linda"] as const
 
+/** One of the four advocates (Acuity's "Client" and "Other" are not). */
+export const isAdvocate = (name: string | null | undefined) => Boolean(name && (ADVOCATES as readonly string[]).includes(name))
+
 /** Each advocate's Clio user (the client portal needs the firm-user record). */
 export const ADVOCATE_CLIO_NAMES: Record<string, string> = {
   Shane: "Shane Harper",

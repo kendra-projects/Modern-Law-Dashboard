@@ -10,7 +10,7 @@ import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspac
 import type { ActivityRow } from "@/components/intake/lead-activity"
 import { ClioSyncPing } from "@/components/intake/clio-sync-ping"
 import { followUpPlan } from "@/lib/follow-ups"
-import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
+import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { CLIO_APP } from "@/lib/clio-intake"
 import { describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
@@ -20,6 +20,9 @@ import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
 import { conflictAutoOn, savedSearch } from "@/lib/conflict-search"
+import { advocateAutoOn } from "@/lib/advocate-auto"
+import { mailConfigured } from "@/lib/mail"
+import { CONFLICT_EMAIL, conflictEmailTo } from "@/lib/conflict-email"
 import { botHandles, botMode, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
 
@@ -176,6 +179,24 @@ export default async function IntakeDetailPage({
       }
     : null
 
+  const emailStep = allSteps.find((x) => x.step_key === CONFLICT_EMAIL)
+  const conflictEmailed = emailStep
+    ? emailStep.state === "done"
+      ? `Emailed to ${(emailStep.detail as { to?: string } | null)?.to ?? "Kendra"} on ${when(emailStep.created_at)}.`
+      : `The email to ${(emailStep.detail as { to?: string } | null)?.to ?? "Kendra"} didn't go out: ${emailStep.error ?? "unknown error"}`
+    : null
+
+  // Who picked the advocate, and why when it was automatic (lib/advocate-auto.ts).
+  const advocateStep = lastDone("advocate_assigned")
+  const advocateBy = (advocateStep?.detail as { by?: string } | null)?.by
+  const advocateWaiting = allSteps.find((x) => x.step_key === "advocate_auto")
+  const advocateWhy =
+    advocateBy === "Automatic" && isAdvocate(lead.assigned_advocate)
+      ? `Picked automatically: ${(advocateStep!.detail as { why?: string }).why ?? ""}`
+      : !isAdvocate(lead.assigned_advocate) && advocateWaiting
+        ? `Not assigned automatically yet: ${(advocateWaiting.detail as { why?: string } | null)?.why ?? ""}`
+        : null
+
   const yesNo = (v: boolean | null) => (v == null ? null : v ? "Yes" : "No")
   const referrer = referredBy(lead)
 
@@ -298,7 +319,7 @@ export default async function IntakeDetailPage({
                 ? "Nothing flagged, confirm"
                 : "Waiting on the check",
       description: conflictAutoOn()
-        ? "The dashboard searches Clio for the client and the opposing party. A clean search clears the check on its own; a match, or a name it couldn't search, waits here for staff to decide."
+        ? `The dashboard searches Clio for the client and the opposing party. A clean search clears the check on its own; a match, or a name it couldn't search, waits here for staff to decide${mailConfigured() ? ` and is emailed to ${conflictEmailTo()}` : ""}.`
         : "The dashboard searches Clio for the client and the opposing party and flags what needs a look. Staff decide and record the result here.",
       body: (
         <ConflictStep
@@ -308,16 +329,23 @@ export default async function IntakeDetailPage({
           clientName={clientName}
           opposingParty={lead.opposing_party_name}
           search={conflictSearch}
+          emailed={conflictEmailed}
         />
       ),
     },
     {
       key: "advocate",
       title: "Assign the advocate",
-      ok: Boolean(lead.assigned_advocate),
-      summary: lead.assigned_advocate ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate] ?? lead.assigned_advocate : "Not assigned",
-      description: "The advocate signs the confirmation text, joins the client portal and gets the follow-up tasks.",
-      body: <AdvocateStep leadId={lead.id} assigned={lead.assigned_advocate} />,
+      ok: isAdvocate(lead.assigned_advocate),
+      summary: isAdvocate(lead.assigned_advocate)
+        ? `${ADVOCATE_CLIO_NAMES[lead.assigned_advocate!]}${advocateBy === "Automatic" ? " (automatic)" : ""}`
+        : "Not assigned",
+      description: `The advocate signs the confirmation text, joins the client portal and gets the follow-up tasks.${
+        advocateAutoOn()
+          ? " A booking nobody was assigned to gets the free advocate on its own once the conflict check is clear: not out of office in Slack or on the Clio calendar, and the fewest open consults ahead. Change it here any time."
+          : ""
+      }`,
+      body: <AdvocateStep leadId={lead.id} assigned={isAdvocate(lead.assigned_advocate) ? lead.assigned_advocate : null} why={advocateWhy} />,
     },
     {
       key: "clio",

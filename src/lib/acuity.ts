@@ -1,5 +1,6 @@
 import "server-only"
 
+import { isAdvocate } from "@/lib/intake"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Json } from "@/types/database"
 import {
@@ -150,6 +151,12 @@ export async function enrichLeadFromAcuity(
   if (!admin) return false
 
   const { patch, extras } = mapAppointmentToLead(a)
+  // A reschedule keeps the advocate staff or the automation picked: the form
+  // still says "Client" or "Other" for a booking nobody was assigned to.
+  if ("assigned_advocate" in patch && !isAdvocate(patch.assigned_advocate as string)) {
+    const { data: now } = await admin.from("intake_leads").select("assigned_advocate").eq("id", leadId).maybeSingle()
+    if (isAdvocate(now?.assigned_advocate)) delete patch.assigned_advocate
+  }
   const { error } = await admin
     .from("intake_leads")
     .update({

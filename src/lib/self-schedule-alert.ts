@@ -1,7 +1,9 @@
 import "server-only"
 
 import { consultMethod } from "@/lib/client-messages"
+import { CONFLICT_EMAIL } from "@/lib/conflict-email"
 import { CONFLICT_SEARCH, type ConflictSearch } from "@/lib/conflict-search"
+import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { conflictSearchLine } from "@/lib/intake-steps"
 import { plain, slackEscape } from "@/lib/consult-post"
 import { postToChannel, slackConfigured } from "@/lib/slack"
@@ -38,9 +40,16 @@ type Lead = Pick<
 export function selfScheduleAlertText(
   lead: Lead,
   location: string | null,
-  conflictSearch: string | null = null,
-  conflictCleared = false
+  extra: {
+    conflictSearch?: string | null
+    conflictCleared?: boolean
+    /** The advocate the dashboard picked for this booking. */
+    autoAdvocate?: string | null
+    /** Who the conflict check was emailed to. */
+    emailedTo?: string | null
+  } = {}
 ): string {
+  const { conflictSearch = null, conflictCleared = false, autoAdvocate = null, emailedTo = null } = extra
   const name = [lead.client_first, lead.client_last].filter(Boolean).join(" ") || "a new client"
   const consult = lead.consult_type === "LSS" ? "Limited Scope Strategy Session" : "Initial Consultation"
   const when = lead.consult_datetime
@@ -64,12 +73,19 @@ export function selfScheduleAlertText(
     field(
       "Conflict search",
       conflictSearch &&
-        `${conflictSearch[0].toUpperCase()}${conflictSearch.slice(1)}.${conflictCleared ? " Cleared automatically." : " Details on the lead page."}`
+        `${conflictSearch[0].toUpperCase()}${conflictSearch.slice(1)}.${
+          conflictCleared ? " Cleared automatically." : emailedTo ? ` Emailed to ${emailedTo} to decide.` : " Details on the lead page."
+        }`
     ),
+    field("Advocate", autoAdvocate && `${ADVOCATE_CLIO_NAMES[autoAdvocate] ?? autoAdvocate} (assigned automatically)`),
     `<${SITE}/intake/${lead.id}|Open the lead in the dashboard>`,
     conflictCleared
-      ? "Please assign the advocate, make sure the lead is qualified, and check the consulting attorney."
-      : "Please run the conflict check, make sure the lead is qualified, and check the consulting attorney.",
+      ? autoAdvocate
+        ? "Please make sure the lead is qualified, and check the consulting attorney."
+        : "Please assign the advocate, make sure the lead is qualified, and check the consulting attorney."
+      : emailedTo
+        ? "Please make sure the lead is qualified, and check the consulting attorney."
+        : "Please run the conflict check, make sure the lead is qualified, and check the consulting attorney.",
   ]
     .filter(Boolean)
     .join("\n")
@@ -82,7 +98,7 @@ export async function sendSelfScheduleAlert(leadId: string): Promise<void> {
 
   const { data: lead } = await admin
     .from("intake_leads")
-    .select("id, status, self_scheduled, conflict_status, client_first, client_last, consult_datetime, consult_type, consulting_attorney, method, county, opposing_party_name, matter_type, description")
+    .select("id, status, self_scheduled, conflict_status, assigned_advocate, client_first, client_last, consult_datetime, consult_type, consulting_attorney, method, county, opposing_party_name, matter_type, description")
     .eq("id", leadId)
     .maybeSingle()
   if (!lead || lead.self_scheduled !== true || ["canceled", "stopped", "failed"].includes(lead.status)) return
@@ -90,16 +106,25 @@ export async function sendSelfScheduleAlert(leadId: string): Promise<void> {
   const { data: sent } = await admin.from("intake_steps").select("id").eq("lead_id", leadId).eq("step_key", "slack_alert").maybeSingle()
   if (sent) return
 
-  const [{ data: appt }, { data: search }] = await Promise.all([
+  const [{ data: appt }, { data: steps }] = await Promise.all([
     admin.from("appointments").select("location").eq("lead_id", leadId).order("datetime", { ascending: false }).limit(1).maybeSingle(),
-    admin.from("intake_steps").select("detail").eq("lead_id", leadId).eq("step_key", CONFLICT_SEARCH).maybeSingle(),
+    admin.from("intake_steps").select("step_key, state, detail").eq("lead_id", leadId).in("step_key", [CONFLICT_SEARCH, CONFLICT_EMAIL, "advocate_assigned"]),
   ])
-  const found = search?.detail as ConflictSearch | null
+  const step = (key: string) => (steps ?? []).find((s) => s.step_key === key && s.state === "done")
+  const found = step(CONFLICT_SEARCH)?.detail as ConflictSearch | null
+  const assigned = step("advocate_assigned")?.detail as { by?: string } | null
+  const autoAdvocate = assigned?.by === "Automatic" && isAdvocate(lead.assigned_advocate) ? lead.assigned_advocate : null
+  const emailedTo = (step(CONFLICT_EMAIL)?.detail as { to?: string } | null)?.to ?? null
 
   try {
     const posted = await postToChannel(
       CLIENT_ADVOCATES_CHANNEL,
-      selfScheduleAlertText(lead, appt?.location ?? null, found ? conflictSearchLine(found) : null, lead.conflict_status === "clear")
+      selfScheduleAlertText(lead, appt?.location ?? null, {
+        conflictSearch: found ? conflictSearchLine(found) : null,
+        conflictCleared: lead.conflict_status === "clear",
+        autoAdvocate,
+        emailedTo,
+      })
     )
     await admin.from("intake_steps").insert({
       lead_id: leadId,

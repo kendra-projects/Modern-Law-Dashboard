@@ -1,5 +1,6 @@
 import "server-only"
 
+import { autoAssignAdvocate } from "@/lib/advocate-auto"
 import { consultLocation } from "@/lib/attorney-zoom"
 import { clioStatus } from "@/lib/clio"
 import {
@@ -35,7 +36,8 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // button, after the Clio and Slack sync has picked up anything done by hand,
 // so nothing is made twice. A step that can't run yet waits for the next
 // trigger: the booking, the conflict decision, the advocate, a lead page
-// opening, or the open-leads sync.
+// opening, or the open-leads sync. A booking nobody was assigned to gets the
+// free advocate first, with ADVOCATE_AUTO=on (lib/advocate-auto.ts).
 
 export type AutoIntakeMode = "off" | "log" | "on"
 
@@ -158,8 +160,12 @@ export async function runAutoIntake(leadId: string): Promise<AutoIntakeResult | 
   const admin = createAdminClient()
   if (mode === "off" || !admin) return null
 
-  const first = await load(admin, leadId)
-  if (!first || !inScope(first.lead) || !workLeft(first)) return null
+  let first = await load(admin, leadId)
+  if (!first || !inScope(first.lead)) return null
+  if (mode === "on" && !advocateOf(first.lead) && (await autoAssignAdvocate(admin, first.lead).catch(() => null))) {
+    first = (await load(admin, leadId)) ?? first
+  }
+  if (!workLeft(first)) return null
   if (!(await takeLock(admin, leadId))) return null
 
   try {

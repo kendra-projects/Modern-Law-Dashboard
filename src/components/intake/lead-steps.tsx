@@ -303,6 +303,7 @@ export function ConflictStep({
   clientName,
   opposingParty,
   search,
+  emailed,
 }: {
   leadId: string
   status: "pending" | "clear" | "conflict"
@@ -311,6 +312,8 @@ export function ConflictStep({
   opposingParty: string | null
   /** What the dashboard's search of Clio found; null until it has run. */
   search: ConflictSearchView | null
+  /** "Emailed to … on …" once the check went to Kendra. */
+  emailed?: string | null
 }) {
   const { pending, run, note } = useAction()
   if (status === "clear") return <Hint>No conflict. The intake can go ahead.</Hint>
@@ -382,10 +385,39 @@ export function ConflictStep({
         <CopyButton text={clientName} label={`Client: ${clientName}`} />
         {opposingParty && <CopyButton text={opposingParty} label={`Opposing: ${opposingParty}`} />}
       </Row>
-      <Hint>
-        The search reads Clio&apos;s contacts and the matters they are on. Clio&apos;s own conflict check also searches notes and documents.
-        The decision stays with you:
-      </Hint>
+      {!closed && search && !search.errors.length && (search.flagged.length > 0 || !search.opposing) ? (
+        <div className="space-y-1 rounded-md border border-border bg-muted/40 p-2.5 text-xs">
+          <p className="font-medium text-foreground">What to do</p>
+          {search.flagged.length > 0 ? (
+            <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+              <li>Open each match in Clio (the links above): where they live, their case, who else is on it.</li>
+              <li>
+                Same name, different person? Click <b className="text-foreground">No conflict</b>. The intake carries on by itself: the advocate,
+                the portal invite, the Slack post and the tasks.
+              </li>
+              <li>
+                The same person, or not sure? Click <b className="text-foreground">Conflict, stop</b>. Nothing more goes to the client. Then call
+                the client to cancel or refer the consult, and cancel it in Acuity.
+              </li>
+            </ol>
+          ) : (
+            <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+              <li>Find the other party&apos;s full name: the Lexi conversation, Clio Grow, or a call to the client.</li>
+              <li>Run Full check in Clio on that name.</li>
+              <li>
+                Nothing there, or there is no other party? Click <b className="text-foreground">No conflict</b>. A match with the same person? Click{" "}
+                <b className="text-foreground">Conflict, stop</b>.
+              </li>
+            </ol>
+          )}
+          {emailed && <p className="text-muted-foreground">{emailed}</p>}
+        </div>
+      ) : (
+        <Hint>
+          The search reads Clio&apos;s contacts and the matters they are on. Clio&apos;s own conflict check also searches notes and documents.
+          The decision stays with you:
+        </Hint>
+      )}
       {!closed && (
         <Row>
           <Button size="sm" className="h-8 gap-1.5 text-xs" disabled={pending} onClick={() => run(() => setConflictDecision(leadId, "clear"))}>
@@ -408,7 +440,7 @@ export function ConflictStep({
 }
 
 // ── 4. Advocate ─────────────────────────────────────────────────────────────
-export function AdvocateStep({ leadId, assigned }: { leadId: string; assigned: string | null }) {
+export function AdvocateStep({ leadId, assigned, why }: { leadId: string; assigned: string | null; why?: string | null }) {
   const { pending, run, note } = useAction()
   const [advocate, setAdvocate] = React.useState(assigned ?? "")
   return (
@@ -438,6 +470,7 @@ export function AdvocateStep({ leadId, assigned }: { leadId: string; assigned: s
           <UserCheck className="h-3.5 w-3.5" /> Save
         </Button>
       </Row>
+      {why && <Hint>{why}</Hint>}
       {note}
     </div>
   )

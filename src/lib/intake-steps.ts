@@ -21,6 +21,9 @@ export type StepDetail = {
   searched?: string[]
   opposing_skipped?: string | null
   note?: string | null
+  why?: string
+  to?: string
+  reason?: string
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
@@ -47,7 +50,15 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     case "conflict_search":
       return `Conflict search: ${conflictSearchLine({ flags: d.flags ?? 0, hits: d.hits ?? [], searched: d.searched ?? ["Clio"], opposing_skipped: d.opposing_skipped ?? null })}`
     case "advocate_assigned":
-      return `Assigned to ${d.advocate ?? "advocate"}`
+      return d.by === "Automatic"
+        ? `Assigned to ${d.advocate ?? "advocate"} automatically${d.why ? `: ${d.why}` : ""}`
+        : `Assigned to ${d.advocate ?? "advocate"}`
+    case "advocate_auto":
+      return `Advocate not assigned yet: ${d.why ?? "nobody is free"}`
+    case "conflict_email":
+      return s.state === "failed"
+        ? `The conflict check email to ${d.to ?? "Kendra"} didn't go out`
+        : `Conflict check emailed to ${d.to ?? "Kendra"}: ${d.reason === "match" ? `${d.flags ?? ""} ${(d.flags ?? 0) === 1 ? "match" : "matches"} to look at`.trim() : "no opposing party to search"}`
     case "clio_contact":
       return d.action === "created"
         ? "Clio contact created"
@@ -165,7 +176,9 @@ export function leadStepFor(stepKey: string): string | null {
     lexi_followups: "lexi",
     conflict_check: "conflict",
     conflict_search: "conflict",
+    conflict_email: "conflict",
     advocate_assigned: "advocate",
+    advocate_auto: "advocate",
     clio_create: "clio",
     clio_contact: "clio",
     clio_matter: "clio",
@@ -184,6 +197,6 @@ export type StepCategory = "booking" | "clio" | "decision" | "system"
 export function stepCategory(key: string): StepCategory {
   if (key.startsWith("acuity_")) return "booking"
   if (key.startsWith("clio_") || key.startsWith("grow_")) return "clio"
-  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "conflict_search" || key === "advocate_assigned" || key === "final_signoff") return "decision"
+  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
   return "system"
 }

@@ -27,5 +27,6 @@ export async function signIn(
   // Forget the admin's last workspace so every login starts at the chooser.
   cookies().delete(WORKSPACE_COOKIE)
 
-  redirect(redirectTo.startsWith("/") ? redirectTo : "/")
+  // Only a page of this site ("//host" would leave it).
+  redirect(redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/")
 }

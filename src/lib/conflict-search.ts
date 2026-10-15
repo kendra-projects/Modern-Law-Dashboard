@@ -5,6 +5,7 @@ import { CLIO_APP } from "@/lib/clio-intake"
 import { growFetch, growStatus } from "@/lib/grow"
 import { runAutoIntake } from "@/lib/auto-intake"
 import { wakeBotFor } from "@/lib/bot"
+import { emailConflict } from "@/lib/conflict-email"
 import { logStep } from "@/lib/intake-step-log"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
@@ -21,8 +22,9 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // check on its own: both names searched in Clio Manage and Grow without an
 // error, and nothing flagged. Everything else (a match, an opposing party
 // that couldn't be searched, an error) stays with staff, who decide on the
-// lead page. A match is never stopped automatically: most are only the same
-// name, and a stopped lead gets nothing more.
+// lead page; a match or a missing opposing party is emailed to Kendra with a
+// link to it (lib/conflict-email.ts). A match is never stopped automatically:
+// most are only the same name, and a stopped lead gets nothing more.
 //
 // Runs when a booking comes in, when the lead's page opens and with the
 // open-leads sync, for leads whose conflict check is still pending. A saved
@@ -76,9 +78,14 @@ type Lead = Pick<
   | "clio_client_contact_id"
   | "clio_op_contact_id"
   | "clio_matter_id"
+  | "consult_datetime"
+  | "consult_type"
+  | "consulting_attorney"
+  | "county"
+  | "matter_type"
 >
 const LEAD_COLUMNS =
-  "id, source, created_at, status, client_first, client_last, email, phone, opposing_party_name, conflict_status, clio_client_contact_id, clio_op_contact_id, clio_matter_id"
+  "id, source, created_at, status, client_first, client_last, email, phone, opposing_party_name, conflict_status, clio_client_contact_id, clio_op_contact_id, clio_matter_id, consult_datetime, consult_type, consulting_attorney, county, matter_type"
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>
 type Contact = { id: number; name: string; primary_email_address?: string | null; primary_phone_number?: string | null }
@@ -291,11 +298,16 @@ export function cannotAutoClear(x: Pick<ConflictSearch, "errors" | "searched" | 
  * With CONFLICT_AUTO=on, clear a pending check whose search came back clean,
  * then let the automatic intake and the bot carry on. Returns true when it
  * cleared. Same record as staff clicking No conflict, signed "Automatic".
+ * A search that needs a person instead goes to Kendra by email.
  */
 async function settleConflict(admin: Admin, lead: Lead, search: ConflictSearch): Promise<boolean> {
   if (!conflictAutoOn() || lead.source !== "acuity" || !pending(lead)) return false
   if (new Date(lead.created_at).getTime() < new Date(conflictAutoFrom()).getTime()) return false
-  if (cannotAutoClear(search) || !fresh(search, lead)) return false
+  if (!fresh(search, lead)) return false
+  if (cannotAutoClear(search)) {
+    await emailConflict(admin, lead, search).catch(() => false)
+    return false
+  }
   const early = ["received", "enriched", "conflict_pending"].includes(lead.status)
   const { data, error } = await admin
     .from("intake_leads")

@@ -51,7 +51,10 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
-    url.searchParams.set("redirectedFrom", pathname)
+    // Back to the same page after signing in, query included (an email's
+    // link to a lead's step, say).
+    url.search = ""
+    url.searchParams.set("redirectedFrom", pathname + request.nextUrl.search)
     return NextResponse.redirect(url)
   }
 
