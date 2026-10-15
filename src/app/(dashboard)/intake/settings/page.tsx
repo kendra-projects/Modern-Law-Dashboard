@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { clioConfigured, clioFetch, clioStatus } from "@/lib/clio"
 import { growConfigured, growFetch, growStatus } from "@/lib/grow"
 import { selfScheduleAlertOn } from "@/lib/self-schedule-alert"
+import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
+import { slackConfigured } from "@/lib/slack"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -109,6 +111,26 @@ export default async function IntakeSettingsPage({
   }
   const growState: "ok" | "waiting" | "problem" = !growKeys || !grow.connected ? "waiting" : growLive ? "ok" : "problem"
   const growAuto = process.env.GROW_AUTO_NOTES !== "off"
+
+  // ── Automatic intake ──
+  const autoMode = autoIntakeMode()
+  const { data: lastAuto } = admin
+    ? await admin
+        .from("intake_steps")
+        .select("created_at")
+        .eq("step_key", "auto_intake")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null }
+  const autoState: "ok" | "waiting" | "problem" =
+    autoMode === "on" ? (status.connected && slackConfigured() ? "ok" : "problem") : "waiting"
+  const autoFrom = new Date(autoIntakeFrom()).toLocaleDateString("en-US", {
+    timeZone: "America/Phoenix",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
 
   return (
     <div className="space-y-6">
@@ -249,6 +271,43 @@ export default async function IntakeSettingsPage({
               </p>
             )}
           </div>
+        </div>
+
+        {/* Automatic intake */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-foreground">Automatic intake</h2>
+            <StatusPill state={autoState} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            For new bookings, the dashboard creates the Clio contact and matter, sends the portal
+            invite, posts in #initialconsultations and creates the follow-up tasks on its own once
+            the conflict check is clear and an advocate is assigned, then approves the intake when
+            the text and Lexi are done too.
+          </p>
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Mode</dt>
+              <dd className="text-right text-foreground">
+                {autoMode === "on"
+                  ? "On"
+                  : autoMode === "log"
+                    ? "Test run (records what it would do)"
+                    : "Off (buttons on the lead page only)"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Bookings from</dt>
+              <dd className="text-foreground">{autoFrom}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Last run</dt>
+              <dd className="text-foreground">{lastAuto ? fmt(lastAuto.created_at) : "None yet"}</dd>
+            </div>
+          </dl>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Set with AUTO_INTAKE (on, log or off) in Vercel, then redeploy.
+          </p>
         </div>
       </div>
     </div>

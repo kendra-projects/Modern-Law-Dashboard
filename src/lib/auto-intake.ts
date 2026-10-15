@@ -66,6 +66,11 @@ const CLOSED: IntakeLead["status"][] = ["canceled", "stopped", "failed", "done"]
 // A run that died (a timeout) frees the lead after this long.
 const LOCK = "auto_lock"
 const LOCK_TTL = 3 * 60 * 1000
+// A step the automation tried and Clio or Slack refused (an attorney who isn't
+// a Clio user, say) waits this long before the automation tries it again, so
+// one stuck lead doesn't spend every sync on the same error. Its button on the
+// lead page works any time.
+const RETRY_AFTER = 60 * 60 * 1000
 
 async function load(admin: Admin, leadId: string): Promise<State | null> {
   const [{ data: lead }, { data: steps }] = await Promise.all([
@@ -103,10 +108,27 @@ function inScope(lead: IntakeLead) {
 const advocateOf = (lead: IntakeLead) =>
   lead.assigned_advocate ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate] ?? null : null
 
+/** The automation's own attempt at this step failed within RETRY_AFTER. */
+function backingOff(s: State, failureKey: string) {
+  return s.steps.some(
+    (x) =>
+      x.step_key === failureKey &&
+      x.state === "failed" &&
+      (x.detail as { by?: string } | null)?.by === BY &&
+      Date.now() - new Date(x.updated_at).getTime() < RETRY_AFTER
+  )
+}
+
 /** Is there anything the automation could still do, without asking Clio or Slack? */
 function workLeft(s: State) {
-  if (!s.lead.clio_matter_id) return true
-  return Boolean(advocateOf(s.lead)) && (!s.portal || !s.slack || !s.tasks)
+  const advocate = Boolean(advocateOf(s.lead))
+  const slack = advocate && !s.slack && !backingOff(s, "slack_post")
+  if (!s.lead.clio_matter_id) return !backingOff(s, "clio_create") || slack
+  return (
+    slack ||
+    (advocate && !s.portal && !backingOff(s, "clio_portal")) ||
+    (advocate && !s.tasks && !backingOff(s, "clio_tasks"))
+  )
 }
 
 /** One run per lead at a time: Acuity can resend a booking while the first run is still writing. */
@@ -176,7 +198,8 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   let contactId = lead.clio_client_contact_id
   let matterComing = false
   if (!matterId) {
-    if (!(await clioStatus()).connected) waiting.push("Clio matter: Clio is not connected")
+    if (backingOff(s, "clio_create")) waiting.push("Clio matter: tries again an hour after the last error")
+    else if (!(await clioStatus()).connected) waiting.push("Clio matter: Clio is not connected")
     else {
       try {
         // A contact found only by phone under another name is someone else
@@ -223,6 +246,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     if (!hasMatter) waiting.push("Portal invite: needs the Clio matter")
     else if (!advocate) waiting.push("Portal invite: needs the advocate")
     else if (nameIssue) waiting.push(`Portal invite: ${nameIssue}`)
+    else if (backingOff(s, "clio_portal")) waiting.push("Portal invite: tries again an hour after the last error")
     else if (dry) done.push("send the portal invite")
     else {
       try {
@@ -251,6 +275,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     if (!slackConfigured()) waiting.push("Slack post: Slack is not connected")
     else if (!advocate) waiting.push("Slack post: needs the advocate")
     else if (nameIssue) waiting.push(`Slack post: ${nameIssue}`)
+    else if (backingOff(s, "slack_post")) waiting.push("Slack post: tries again an hour after the last error")
     else {
       const { data: appt } = await admin
         .from("appointments")
@@ -295,6 +320,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   if (!s.tasks) {
     if (!hasMatter) waiting.push("Follow-up tasks: need the Clio matter")
     else if (!advocate) waiting.push("Follow-up tasks: need the advocate")
+    else if (backingOff(s, "clio_tasks")) waiting.push("Follow-up tasks: try again an hour after the last error")
     else if (dry) done.push("create the follow-up tasks")
     else {
       try {

@@ -72,12 +72,15 @@ export async function setConflictDecision(
     error: cleared ? null : "Conflict found — lead stopped.",
   })
 
+  // A clear conflict is usually the last thing the automatic steps wait for.
+  const auto = cleared ? await runAutoIntake(leadId).catch(() => null) : null
+
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
   revalidatePath("/")
   return {
     ok: true,
-    message: cleared ? "Conflict check cleared." : "Conflict found — lead stopped.",
+    message: cleared ? `Conflict check cleared.${autoIntakeMessage(auto)}` : "Conflict found — lead stopped.",
   }
 }
 
@@ -340,8 +343,11 @@ export async function markLexiFollowUps(leadId: string, result: "paused" | "none
   })
   if (error) return { ok: false, message: "Could not save." }
 
+  const approved = await autoSignoff(leadId).catch(() => false)
   revalidatePath(`/intake/${leadId}`)
-  return { ok: true, message: result === "paused" ? "Lexi follow-ups marked as paused." : "Recorded: nothing was pending in Lexi." }
+  if (approved) revalidatePath("/intake")
+  const base = result === "paused" ? "Lexi follow-ups marked as paused." : "Recorded: nothing was pending in Lexi."
+  return { ok: true, message: approved ? `${base} Every step is done, so the intake was approved.` : base }
 }
 
 /**

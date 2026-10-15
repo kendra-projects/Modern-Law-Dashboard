@@ -18,9 +18,13 @@ import { consultLocation } from "@/lib/attorney-zoom"
 import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
+import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
+// Clearing the conflict or assigning the advocate can run the automatic
+// intake steps (Clio, portal, Slack, tasks) inside that click's request.
+export const maxDuration = 60
 
 function fullName(first: string | null, last: string | null) {
   return [first, last].filter(Boolean).join(" ") || "Unknown lead"
@@ -156,6 +160,13 @@ export default async function IntakeDetailPage({
   const yesNo = (v: boolean | null) => (v == null ? null : v ? "Yes" : "No")
   const referrer = referredBy(lead)
 
+  // New Acuity bookings get the API steps done for them (lib/auto-intake.ts).
+  const auto =
+    autoIntakeMode() === "on" &&
+    lead.source === "acuity" &&
+    new Date(lead.created_at).getTime() >= new Date(autoIntakeFrom()).getTime()
+  const autoLine = auto ? " Done on its own once the conflict check is clear and an advocate is assigned." : ""
+
   // The intake steps, in the order the work is done.
   const raw: (Omit<WorkspaceStep, "state"> & { ok: boolean | "failed" | "waiting" })[] = [
     {
@@ -273,7 +284,7 @@ export default async function IntakeDetailPage({
       title: "Clio contact & matter",
       ok: Boolean(lead.clio_matter_id),
       summary: lead.clio_matter_id ? matterName ?? `Matter #${lead.clio_matter_id}` : "Not in Clio yet",
-      description: "The client's contact and the consult's matter in Clio Manage. A matter staff made in Clio is picked up here on its own.",
+      description: `The client's contact and the consult's matter in Clio Manage. A matter staff made in Clio is picked up here on its own.${autoLine}`,
       body: (
         // Clio lookups can take a moment; the rest of the page doesn't wait.
         <Suspense fallback={<ClioStepSkeleton />}>
@@ -286,7 +297,7 @@ export default async function IntakeDetailPage({
       title: "Client portal invite",
       ok: portalDone,
       summary: portalDone ? whoWhen("clio_portal_sent") ?? "Portal open in Clio" : "Not sent",
-      description: "Opens the client's portal in Clio with only the client, the advocate and the attorney, and emails the client the invite.",
+      description: `Opens the client's portal in Clio with only the client, the advocate and the attorney, and emails the client the invite.${autoLine}`,
       body: (
         <PortalStep
           leadId={lead.id}
@@ -320,7 +331,7 @@ export default async function IntakeDetailPage({
       title: "Initial Consultations post",
       ok: Boolean(slackStep),
       summary: slackStep ? whoWhen("slack_posted") : "Not posted",
-      description: "Tells the attorney about the consult in Slack's #initialconsultations, in the format the team uses there.",
+      description: `Tells the attorney about the consult in Slack's #initialconsultations, in the format the team uses there.${autoLine}`,
       body: <SlackStep leadId={lead.id} draft={post.text} missing={post.missing} posted={Boolean(slackStep)} link={slackLink} blocker={needsClear} />,
     },
     {
@@ -328,7 +339,7 @@ export default async function IntakeDetailPage({
       title: "Follow-up tasks",
       ok: tasksDone,
       summary: tasksDone ? whoWhen("clio_tasks") : plan.length ? `Due ${dueDay(plan[0].due)}` : "Waiting on the consult date",
-      description: "Three tasks on the Clio matter for the advocate, due one and two business days after the consult.",
+      description: `Three tasks on the Clio matter for the advocate, due one and two business days after the consult.${autoLine}`,
       body: (
         <TasksStep
           leadId={lead.id}
@@ -348,7 +359,9 @@ export default async function IntakeDetailPage({
       title: "Final sign-off",
       ok: approved,
       summary: approved ? whoWhen("final_signoff") ?? "Approved" : "Not yet",
-      description: "Approve the intake once the steps above are done. It then leaves the queue's open list.",
+      description: auto
+        ? "Approved on its own once every step above is done, the text and Lexi included. It then leaves the queue's open list."
+        : "Approve the intake once the steps above are done. It then leaves the queue's open list.",
       body: <SignoffStep leadId={lead.id} approved={approved} blocker={closed ? `This lead is ${lead.status}.` : needsClear ?? needsMatter} />,
     },
   ]

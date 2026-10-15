@@ -12,6 +12,10 @@ export type StepDetail = {
   notes?: string[]
   result?: string
   matter_name?: string
+  mode?: string
+  done?: string[]
+  waiting?: string[]
+  failed?: string[]
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
@@ -88,7 +92,25 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
         ? "Only a hired Clio Grow matter found: pick it or wait for the new one"
         : "Several Clio Grow matters fit: pick the right one"
     case "final_signoff":
-      return "Intake approved"
+      return d.by === "Automatic" ? "Intake approved automatically: every step was done" : "Intake approved"
+    case "auto_intake": {
+      const done = d.done ?? []
+      const waiting = d.waiting ?? []
+      const failed = d.failed ?? []
+      if (d.mode === "log")
+        return done.length
+          ? `Test run: the automation would ${done.join(", ")}`
+          : `Test run: nothing to do yet${waiting.length ? ` (waiting: ${waiting.join("; ")})` : ""}`
+      return [
+        done.length ? `Done automatically: ${done.join(", ")}` : "",
+        failed.length ? `Didn't go through: ${failed.join("; ")}` : "",
+        waiting.length ? `Waiting: ${waiting.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(". ")
+    }
+    case "auto_lock":
+      return "Automatic intake running"
     default:
       return s.step_key.replace(/_/g, " ")
   }
@@ -97,7 +119,8 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
 /** The lead-page step (lead page `?step=`) where a logged step is worked on. */
 export function leadStepFor(stepKey: string): string | null {
   if (stepKey.startsWith("grow_")) return "grow"
-  if (stepKey === "slack_alert" || stepKey === "slack_alert_failed" || stepKey.startsWith("acuity_")) return "booked"
+  if (stepKey === "slack_alert" || stepKey === "slack_alert_failed" || stepKey.startsWith("acuity_") || stepKey.startsWith("auto_"))
+    return "booked"
   if (stepKey.startsWith("slack_")) return "slack"
   const map: Record<string, string> = {
     lexi_followups: "lexi",
