@@ -14,6 +14,8 @@ import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/sla
 import { addGrowNoteTo } from "@/lib/grow-sync"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake"
+import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/conflict-search"
+import { conflictSearchLine } from "@/lib/intake-steps"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -64,11 +66,19 @@ export async function setConflictDecision(
 
   if (error) return { ok: false, message: "Could not save the conflict decision." }
 
+  // What the conflict search had shown when the decision was made.
+  const { data: search } = await supabase
+    .from("intake_steps")
+    .select("detail")
+    .eq("lead_id", leadId)
+    .eq("step_key", CONFLICT_SEARCH)
+    .maybeSingle()
+  const found = search?.detail as ConflictSearch | null
   await supabase.from("intake_steps").insert({
     lead_id: leadId,
     step_key: "conflict_check",
     state: cleared ? "done" : "failed",
-    detail: { decision, by: user.email ?? user.id },
+    detail: { decision, by: user.email ?? user.id, ...(found ? { search: { flags: found.flags, at: found.at } } : {}) },
     error: cleared ? null : "Conflict found — lead stopped.",
   })
 
@@ -463,6 +473,21 @@ export async function addGrowNote(leadId: string, matterRef: string): Promise<Ac
   const r = await addGrowNoteTo(leadId, matterRef, user.email ?? user.id)
   revalidatePath(`/intake/${leadId}`)
   return r
+}
+
+/** The conflict step's Search again: looks the names up in Clio afresh. Reads only. */
+export async function searchConflictsAgain(leadId: string): Promise<ActionResult> {
+  const { user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+  try {
+    const r = await runConflictSearch(leadId, { force: true })
+    if (!r) return { ok: false, message: "Nothing to search: the conflict check is already decided, or Clio isn't connected." }
+    revalidatePath(`/intake/${leadId}`)
+    return { ok: true, message: `Searched again: ${conflictSearchLine(r)}.` }
+  } catch (e) {
+    return { ok: false, message: `Clio couldn't be searched just now (${e instanceof Error ? e.message.slice(0, 120) : "error"}).` }
+  }
 }
 
 // ── Create in Clio ──────────────────────────────────────────────────────────

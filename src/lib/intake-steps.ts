@@ -16,6 +16,10 @@ export type StepDetail = {
   done?: string[]
   waiting?: string[]
   failed?: string[]
+  flags?: number
+  hits?: { self?: boolean }[]
+  searched?: string[]
+  opposing_skipped?: string | null
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
@@ -31,6 +35,8 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       return d.result === "paused" ? "Lexi follow-ups paused" : "Lexi checked: no follow-ups pending"
     case "conflict_check":
       return d.decision === "clear" ? "Conflict check cleared" : "Conflict found, lead stopped"
+    case "conflict_search":
+      return `Conflict search: ${conflictSearchLine({ flags: d.flags ?? 0, hits: d.hits ?? [], searched: d.searched ?? ["Clio"], opposing_skipped: d.opposing_skipped ?? null })}`
     case "advocate_assigned":
       return `Assigned to ${d.advocate ?? "advocate"}`
     case "clio_contact":
@@ -116,6 +122,20 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
   }
 }
 
+/** One line for Slack and the activity log. */
+export function conflictSearchLine(s: { flags: number; hits: { self?: boolean }[]; searched: string[]; opposing_skipped: string | null }) {
+  const where = s.searched.join(" and ")
+  const others = s.hits.filter((h) => !h.self).length
+  const main = s.flags
+    ? `${s.flags} ${s.flags === 1 ? "match" : "matches"} in ${where} to look at`
+    : others
+      ? `nothing flagged in ${where} (${others} other same-name ${others === 1 ? "record" : "records"})`
+      : s.hits.length
+        ? `nothing flagged in ${where} (only this consult's own records)`
+        : `no matches in ${where}`
+  return s.opposing_skipped && !s.opposing_skipped.startsWith("The booking names no") ? `${main}; opposing party not searched` : main
+}
+
 /** The lead-page step (lead page `?step=`) where a logged step is worked on. */
 export function leadStepFor(stepKey: string): string | null {
   if (stepKey.startsWith("grow_")) return "grow"
@@ -125,6 +145,7 @@ export function leadStepFor(stepKey: string): string | null {
   const map: Record<string, string> = {
     lexi_followups: "lexi",
     conflict_check: "conflict",
+    conflict_search: "conflict",
     advocate_assigned: "advocate",
     clio_create: "clio",
     clio_contact: "clio",
@@ -144,6 +165,6 @@ export type StepCategory = "booking" | "clio" | "decision" | "system"
 export function stepCategory(key: string): StepCategory {
   if (key.startsWith("acuity_")) return "booking"
   if (key.startsWith("clio_") || key.startsWith("grow_")) return "clio"
-  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "advocate_assigned" || key === "final_signoff") return "decision"
+  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "conflict_search" || key === "advocate_assigned" || key === "final_signoff") return "decision"
   return "system"
 }

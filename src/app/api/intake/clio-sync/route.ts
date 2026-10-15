@@ -5,6 +5,7 @@ import { syncLeadFromClio, syncOpenLeadsFromClio } from "@/lib/clio-sync"
 import { syncOpenLeadsFromSlack, syncSlackPosts } from "@/lib/slack-sync"
 import { syncGrowForLead, syncOpenLeadsFromGrow } from "@/lib/grow-sync"
 import { runAutoIntake, runAutoIntakeForOpenLeads } from "@/lib/auto-intake"
+import { runConflictSearch, runConflictSearchForOpenLeads } from "@/lib/conflict-search"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -14,7 +15,8 @@ export const maxDuration = 60
  * in Slack (the #initialconsultations post) back into the dashboard. Reads
  * both only. It also adds the booking note to the client's Clio Grow matter
  * once that matter exists (a note, never an edit), and, when AUTO_INTAKE is
- * on, retries the automatic intake steps (lib/auto-intake.ts).
+ * on, retries the automatic intake steps (lib/auto-intake.ts). For a lead whose
+ * conflict check is pending it runs the conflict search (lib/conflict-search.ts).
  * `?lead=<id>` syncs one lead (the lead page
  * calls this when it opens); without it, the open leads are synced in a batch.
  *
@@ -44,14 +46,18 @@ async function run(request: NextRequest) {
       ])
       // Then the automatic intake steps that couldn't run before (Clio down,
       // a Slack hiccup). After the sync, so they see what staff already did.
-      const auto = await runAutoIntakeForOpenLeads().catch(() => ({ checked: 0, ran: 0 }))
+      const [auto, conflict] = await Promise.all([
+        runAutoIntakeForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
+        runConflictSearchForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
+      ])
       return NextResponse.json({
         ok: true,
         checked: clio.checked,
-        changed: clio.changed + slack.changed + grow.changed + auto.ran,
+        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran,
         slack,
         grow,
         auto,
+        conflict,
       })
     }
 
@@ -74,11 +80,21 @@ async function run(request: NextRequest) {
       syncSlackPosts([lead]).catch(() => []),
       syncGrowForLead(lead.id).catch(() => []),
     ])
-    const auto = await runAutoIntake(lead.id).catch(() => null)
+    // After the sync, so both see the Clio records it linked.
+    const [auto, conflict] = await Promise.all([
+      runAutoIntake(lead.id).catch(() => null),
+      runConflictSearch(lead.id).catch(() => null),
+    ])
     const autoChanged = Boolean(auto && auto.mode === "on" && (auto.done.length || auto.failed.length))
     return NextResponse.json({
       ok: true,
-      changes: [...clio, ...(slack.length ? ["slack"] : []), ...(grow.length ? ["grow"] : []), ...(autoChanged ? ["auto"] : [])],
+      changes: [
+        ...clio,
+        ...(slack.length ? ["slack"] : []),
+        ...(grow.length ? ["grow"] : []),
+        ...(autoChanged ? ["auto"] : []),
+        ...(conflict ? ["conflict"] : []),
+      ],
     })
   } catch (e) {
     return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : "Sync failed" }, { status: 500 })

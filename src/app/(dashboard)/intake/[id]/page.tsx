@@ -19,6 +19,7 @@ import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
+import { savedSearch } from "@/lib/conflict-search"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -157,6 +158,22 @@ export default async function IntakeDetailPage({
   const lexiStep = lastDone("lexi_followups")
   const lexiResult = lexiStep ? ((lexiStep.detail as { result?: string } | null)?.result === "none" ? "none" : "paused") : null
 
+  // What the dashboard's conflict search found (lib/conflict-search.ts). The
+  // sync this page pings runs it when it is missing or out of date.
+  const found = savedSearch(allSteps)
+  const conflictSearch = found
+    ? {
+        when: when(found.at),
+        searched: found.searched,
+        opposing: found.opposing,
+        opposingSkipped: found.opposing_skipped && !found.opposing_skipped.startsWith("The booking names no") ? found.opposing_skipped : null,
+        flagged: found.hits.filter((h) => h.flag),
+        others: found.hits.filter((h) => !h.flag && !h.self),
+        own: found.hits.filter((h) => !h.flag && h.self),
+        errors: found.errors,
+      }
+    : null
+
   const yesNo = (v: boolean | null) => (v == null ? null : v ? "Yes" : "No")
   const referrer = referredBy(lead)
 
@@ -265,10 +282,22 @@ export default async function IntakeDetailPage({
           ? whoWhen("conflict_check") ?? "Cleared"
           : lead.conflict_status === "conflict"
             ? "Conflict found"
-            : "Waiting on the check",
-      description: "Search the client and the opposing party in Clio's conflict check, then record the result here.",
+            : conflictSearch?.flagged.length
+              ? `${conflictSearch.flagged.length} to look at`
+              : conflictSearch
+                ? "Nothing flagged, confirm"
+                : "Waiting on the check",
+      description:
+        "The dashboard searches Clio for the client and the opposing party and flags what needs a look. Staff decide and record the result here.",
       body: (
-        <ConflictStep leadId={lead.id} status={lead.conflict_status} closed={closed} clientName={clientName} opposingParty={lead.opposing_party_name} />
+        <ConflictStep
+          leadId={lead.id}
+          status={lead.conflict_status}
+          closed={closed}
+          clientName={clientName}
+          opposingParty={lead.opposing_party_name}
+          search={conflictSearch}
+        />
       ),
     },
     {

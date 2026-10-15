@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle, StickyNote } from "lucide-react"
+import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle, StickyNote, RefreshCw } from "lucide-react"
 import {
   setConflictDecision,
+  searchConflictsAgain,
   assignAdvocate,
   approveIntake,
   markClientMessage,
@@ -14,6 +15,7 @@ import {
   addGrowNote,
 } from "@/app/actions/intake-leads"
 import { ADVOCATES, ADVOCATE_CLIO_NAMES, CLIO_CONFLICT_URL } from "@/lib/intake"
+import type { ConflictHit } from "@/lib/conflict-search"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -248,35 +250,140 @@ export function LexiStep({
 }
 
 // ── 3. Conflict check ───────────────────────────────────────────────────────
+export type ConflictSearchView = {
+  when: string
+  searched: string[]
+  opposing: string | null
+  opposingSkipped: string | null
+  flagged: ConflictHit[]
+  others: ConflictHit[]
+  own: ConflictHit[]
+  errors: string[]
+}
+
+function ConflictHitRow({ hit }: { hit: ConflictHit }) {
+  return (
+    <li className="rounded-lg bg-muted/30 px-3 py-2">
+      <p className="text-sm text-foreground">
+        {hit.url ? (
+          <a href={hit.url} target="_blank" rel="noreferrer" className="hover:underline">
+            {hit.name}
+          </a>
+        ) : (
+          hit.name
+        )}
+        <span className="ml-1.5 text-xs text-muted-foreground">
+          {hit.side === "client" ? "client's name" : "opposing party's name"}
+          {hit.self ? ", this consult's record" : ""}
+        </span>
+      </p>
+      <ul className="mt-0.5 space-y-0.5">
+        {(hit.roles.length ? hit.roles : [{ text: "In Clio, on no matters", url: null, flag: false }]).map((r, i) => (
+          <li key={i} className={cn("text-xs", r.flag ? "font-medium text-destructive" : "text-muted-foreground")}>
+            {r.url ? (
+              <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline">
+                {r.text}
+              </a>
+            ) : (
+              r.text
+            )}
+          </li>
+        ))}
+      </ul>
+    </li>
+  )
+}
+
 export function ConflictStep({
   leadId,
   status,
   closed,
   clientName,
   opposingParty,
+  search,
 }: {
   leadId: string
   status: "pending" | "clear" | "conflict"
   closed: boolean
   clientName: string
   opposingParty: string | null
+  /** What the dashboard's search of Clio found; null until it has run. */
+  search: ConflictSearchView | null
 }) {
   const { pending, run, note } = useAction()
   if (status === "clear") return <Hint>No conflict. The intake can go ahead.</Hint>
   if (status === "conflict") return <Hint>A conflict was found, so the intake stopped here.</Hint>
+  const also = search ? [...search.others, ...search.own] : []
   return (
     <div className="space-y-3">
-      <Hint>
-        Open{" "}
-        <a href={CLIO_CONFLICT_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-          Clio conflict checks <ExternalLink className="h-3 w-3" />
-        </a>
-        , click Run conflict check and search these names:
-      </Hint>
+      {!search ? (
+        <Hint>
+          {closed
+            ? "No conflict search ran for this lead."
+            : "Searching Clio for the client and the opposing party. The result shows here in a moment."}
+        </Hint>
+      ) : (
+        <>
+          <Hint>
+            Searched {search.searched.join(" and ")} for {clientName}
+            {search.opposing ? ` and ${search.opposing}` : ""}, {search.when}.
+          </Hint>
+          {search.flagged.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-destructive">
+                {search.flagged.length} {search.flagged.length === 1 ? "match" : "matches"} to look at before clearing:
+              </p>
+              <ul className="space-y-1.5">
+                {search.flagged.map((h, i) => (
+                  <ConflictHitRow key={i} hit={h} />
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-xs text-success">
+              Nothing flagged: no match shows the opposing party as a client of the firm, or the client on the other side of a firm case.
+            </p>
+          )}
+          {search.opposingSkipped && <p className="text-xs text-accent">{search.opposingSkipped} Search the right name by hand.</p>}
+          {search.errors.map((e) => (
+            <p key={e} className="text-xs text-destructive">
+              {e}
+            </p>
+          ))}
+          {also.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Also found ({also.length}):{" "}
+                {[
+                  search.others.length ? `${search.others.length} other same-name ${search.others.length === 1 ? "record" : "records"}` : null,
+                  search.own.length ? "this consult's own records" : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+              </summary>
+              <ul className="mt-1.5 space-y-1.5">
+                {also.map((h, i) => (
+                  <ConflictHitRow key={i} hit={h} />
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
       <Row>
+        {!closed && (
+          <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={pending} onClick={() => run(() => searchConflictsAgain(leadId))}>
+            <RefreshCw className={cn("h-3.5 w-3.5", pending && "animate-spin")} /> Search again
+          </Button>
+        )}
+        <OpenLink href={CLIO_CONFLICT_URL} label="Full check in Clio" />
         <CopyButton text={clientName} label={`Client: ${clientName}`} />
         {opposingParty && <CopyButton text={opposingParty} label={`Opposing: ${opposingParty}`} />}
       </Row>
+      <Hint>
+        The search reads Clio&apos;s contacts and the matters they are on. Clio&apos;s own conflict check also searches notes and documents.
+        The decision stays with you:
+      </Hint>
       {!closed && (
         <Row>
           <Button size="sm" className="h-8 gap-1.5 text-xs" disabled={pending} onClick={() => run(() => setConflictDecision(leadId, "clear"))}>

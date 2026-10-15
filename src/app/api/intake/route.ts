@@ -8,6 +8,7 @@ import {
 } from "@/lib/acuity"
 import { syncGrowForLead } from "@/lib/grow-sync"
 import { runAutoIntake } from "@/lib/auto-intake"
+import { runConflictSearch } from "@/lib/conflict-search"
 import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
 import type { Json } from "@/types/database"
 
@@ -23,6 +24,11 @@ export const maxDuration = 60
  */
 async function growNoteSoon(leadId: string) {
   await Promise.race([syncGrowForLead(leadId).catch(() => []), new Promise((r) => setTimeout(r, 8000))])
+}
+
+/** The conflict search for a self-scheduled booking, before its #clientadvocates alert. Same cap. */
+async function conflictSearchSoon(leadId: string) {
+  await Promise.race([runConflictSearch(leadId).catch(() => null), new Promise((r) => setTimeout(r, 8000))])
 }
 
 /**
@@ -159,7 +165,9 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
-    // The #clientadvocates heads-up for a consult the client booked themselves.
+    // The #clientadvocates heads-up for a consult the client booked themselves,
+    // with what the conflict search found in Clio.
+    await conflictSearchSoon(created.id)
     await sendSelfScheduleAlert(created.id).catch(() => {})
     await growNoteSoon(created.id)
     // Staff-booked consults arrive with the conflict check done and the

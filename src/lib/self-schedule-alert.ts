@@ -1,6 +1,8 @@
 import "server-only"
 
 import { consultMethod } from "@/lib/client-messages"
+import { CONFLICT_SEARCH, type ConflictSearch } from "@/lib/conflict-search"
+import { conflictSearchLine } from "@/lib/intake-steps"
 import { plain, slackEscape } from "@/lib/consult-post"
 import { postToChannel, slackConfigured } from "@/lib/slack"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -33,7 +35,7 @@ type Lead = Pick<
   | "description"
 >
 
-export function selfScheduleAlertText(lead: Lead, location: string | null): string {
+export function selfScheduleAlertText(lead: Lead, location: string | null, conflictSearch: string | null = null): string {
   const name = [lead.client_first, lead.client_last].filter(Boolean).join(" ") || "a new client"
   const consult = lead.consult_type === "LSS" ? "Limited Scope Strategy Session" : "Initial Consultation"
   const when = lead.consult_datetime
@@ -54,6 +56,7 @@ export function selfScheduleAlertText(lead: Lead, location: string | null): stri
     field("Opposing party", lead.opposing_party_name),
     field("Matter type", lead.matter_type),
     field("Why they booked", why && (why.length > 600 ? `${why.slice(0, 600)}…` : why)),
+    field("Conflict search", conflictSearch && `${conflictSearch[0].toUpperCase()}${conflictSearch.slice(1)}. Details on the lead page.`),
     `<${SITE}/intake/${lead.id}|Open the lead in the dashboard>`,
     "Please run the conflict check, make sure the lead is qualified, and check the consulting attorney.",
   ]
@@ -76,16 +79,17 @@ export async function sendSelfScheduleAlert(leadId: string): Promise<void> {
   const { data: sent } = await admin.from("intake_steps").select("id").eq("lead_id", leadId).eq("step_key", "slack_alert").maybeSingle()
   if (sent) return
 
-  const { data: appt } = await admin
-    .from("appointments")
-    .select("location")
-    .eq("lead_id", leadId)
-    .order("datetime", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const [{ data: appt }, { data: search }] = await Promise.all([
+    admin.from("appointments").select("location").eq("lead_id", leadId).order("datetime", { ascending: false }).limit(1).maybeSingle(),
+    admin.from("intake_steps").select("detail").eq("lead_id", leadId).eq("step_key", CONFLICT_SEARCH).maybeSingle(),
+  ])
+  const found = search?.detail as ConflictSearch | null
 
   try {
-    const posted = await postToChannel(CLIENT_ADVOCATES_CHANNEL, selfScheduleAlertText(lead, appt?.location ?? null))
+    const posted = await postToChannel(
+      CLIENT_ADVOCATES_CHANNEL,
+      selfScheduleAlertText(lead, appt?.location ?? null, found ? conflictSearchLine(found) : null)
+    )
     await admin.from("intake_steps").insert({
       lead_id: leadId,
       step_key: "slack_alert",
