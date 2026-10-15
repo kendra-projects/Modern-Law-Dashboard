@@ -178,6 +178,11 @@ export function conflictSearchLine(s: { flags: number; hits: { self?: boolean }[
  */
 export function readableError(raw: string | null | undefined): string {
   if (!raw) return ""
+  // The intake bot's notes: Playwright's call log means "the page didn't do what it expected".
+  if (/^The bot couldn't sign in to Clio/.test(raw))
+    return "The bot couldn't sign in to Clio, so nothing was sent. It tries again on its next run (every hour), or send the text by hand."
+  if (/^The bot couldn't (send the text|pause Lexi): .*(Timeout|locator|waiting for)/.test(raw))
+    return `The bot couldn't finish on the ${/Lexi/.test(raw) ? "LexiDesk" : "Clio"} page (it timed out or the page looked different), so nothing was ${/Lexi/.test(raw) ? "paused" : "sent"}. It tries again within the hour, or do this step by hand.`
   const m = raw.match(/^Clio (?:GET|POST|PATCH|PUT|DELETE) \S+ failed \((\d{3})\)\s*([\s\S]*)$/)
   if (!m) return raw
   const code = Number(m[1])

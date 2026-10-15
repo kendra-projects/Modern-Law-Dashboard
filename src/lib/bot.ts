@@ -234,6 +234,8 @@ export async function recordBotResult(r: { lead_id: string; kind: "lexi" | "text
   }
   if (r.outcome === "dry") {
     await logStep(admin, { lead_id: r.lead_id, step_key: `${botKey}_dry`, state: "done", detail: { by: BOT_BY, note } })
+    // A test run that went through means an earlier failure no longer stands.
+    await admin.from("intake_steps").delete().eq("lead_id", r.lead_id).eq("step_key", botKey).eq("state", "failed")
     return { approved: false }
   }
   await logStep(admin, {
