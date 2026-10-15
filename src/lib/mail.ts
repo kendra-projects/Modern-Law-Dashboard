@@ -6,7 +6,8 @@ import nodemailer from "nodemailer"
 // - MAIL_WEBHOOK_URL: a Make scenario's custom webhook that sends the email
 //   with the Gmail connected in Make and answers "sent" once Gmail took it.
 //   Any other answer (Make queues the call while the scenario is off) counts
-//   as not sent, so the dashboard tries again later.
+//   as not sent, so the dashboard tries again later. MAIL_WEBHOOK_SECRET goes
+//   with each call; the scenario's filter sends nothing without it.
 // - SMTP: a Gmail account with an app password (SMTP_USER, SMTP_PASS);
 //   SMTP_HOST and SMTP_PORT change the server, MAIL_FROM the sender's name.
 // With neither, nothing is sent.
@@ -21,7 +22,7 @@ export async function sendMail(x: { to: string; subject: string; html: string; t
     const res = await fetch(hook, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(x),
+      body: JSON.stringify({ ...x, secret: process.env.MAIL_WEBHOOK_SECRET ?? "" }),
       cache: "no-store",
     })
     const answer = (await res.text()).trim().slice(0, 200)
