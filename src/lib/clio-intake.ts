@@ -166,12 +166,20 @@ const nameWords = (s: string) =>
  * ("Eilen Castellano Tatis" is Clio's "Eilen Castellano") or an accent Clio
  * doesn't ("Peláez"). A loose match counts only when exactly one user fits.
  */
+// Clio allows 50 requests a minute, and one lead's portal and tasks look up
+// the same users several times: keep the list for a few minutes.
+let usersCache: { at: number; users: { id: number; name: string; enabled?: boolean }[] } | null = null
+const USERS_TTL = 10 * 60 * 1000
+
 async function clioUser(name: string | null | undefined): Promise<{ id: number; name: string } | null> {
   if (!name?.trim()) return null
-  const res = await clioFetch<{ data: { id: number; name: string; enabled?: boolean }[] }>(
-    `/api/v4/users?fields=id,name,enabled&limit=200`
-  )
-  const users = res.data.filter((u) => u.enabled !== false)
+  if (!usersCache || Date.now() - usersCache.at > USERS_TTL) {
+    const res = await clioFetch<{ data: { id: number; name: string; enabled?: boolean }[] }>(
+      `/api/v4/users?fields=id,name,enabled&limit=200`
+    )
+    usersCache = { at: Date.now(), users: res.data }
+  }
+  const users = usersCache.users.filter((u) => u.enabled !== false)
   const want = nameWords(name)
   const exact = users.find((u) => nameWords(u.name).join(" ") === want.join(" "))
   if (exact) return exact

@@ -170,6 +170,31 @@ export function conflictSearchLine(s: { flags: number; hits: { self?: boolean }[
   return s.opposing_skipped && !s.opposing_skipped.startsWith("The booking names no") ? `${main}; opposing party not searched` : main
 }
 
+/**
+ * A step's error as staff can read it. Clio's raw answers ("Clio GET
+ * /api/v4/users failed (429) {...}") become a sentence that says what happened
+ * and what to do; anything else is shown as it is. The raw text stays in the
+ * row (and on hover) for whoever debugs it.
+ */
+export function readableError(raw: string | null | undefined): string {
+  if (!raw) return ""
+  const m = raw.match(/^Clio (?:GET|POST|PATCH|PUT|DELETE) \S+ failed \((\d{3})\)\s*([\s\S]*)$/)
+  if (!m) return raw
+  const code = Number(m[1])
+  let said = ""
+  try {
+    said = String(JSON.parse(m[2])?.error?.message ?? "")
+  } catch {
+    /* not JSON */
+  }
+  if (code === 429) return "Clio was busy (too many requests in one minute), so this didn't go through. Click Fix to try again; the dashboard also retries on its next run."
+  if (code === 401) return "The Clio connection has expired. Reconnect Clio in Intake Settings, then click Fix."
+  if (code === 403) return "Clio didn't allow this for the connected user. Check that user's permissions in Clio."
+  if (code === 404) return "Clio couldn't find the record. It may have been deleted or merged in Clio."
+  if (code >= 500) return "Clio had a problem on its side. Click Fix to try again in a few minutes."
+  return `Clio didn't accept it${said ? `: ${said}` : ` (error ${code})`}.`
+}
+
 /** The lead-page step (lead page `?step=`) where a logged step is worked on. */
 export function leadStepFor(stepKey: string): string | null {
   if (stepKey.startsWith("grow_")) return "grow"

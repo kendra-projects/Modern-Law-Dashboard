@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { StatTile } from "@/components/stat-tile"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeRangeSelect, useCutoff, withinRange } from "@/components/time-range-select"
-import { describeStep, stepCategory, type StepCategory, type StepDetail } from "@/lib/intake-steps"
+import { describeStep, readableError, stepCategory, type StepCategory, type StepDetail } from "@/lib/intake-steps"
 import { dateTime, timeAgo } from "@/lib/format"
 import type { IntakeStep } from "@/types/database"
 import { cn } from "@/lib/utils"
@@ -176,7 +176,7 @@ export function IntakeActivityClient({ steps, leads }: { steps: ActivityStep[]; 
                     </Link>
                     {e.matterType ? ` · ${e.matterType}` : ""}
                   </p>
-                  {e.error && <p className="mt-0.5 text-xs text-destructive">{e.error}</p>}
+                  {e.error && <p className="mt-0.5 text-xs text-destructive" title={e.error}>{readableError(e.error)}</p>}
                   <p className="mt-1 text-xs text-muted-foreground" title={dateTime(e.created_at)}>
                     {timeAgo(e.created_at)}
                     {e.by ? ` · by ${e.by.split("@")[0]}` : " · automatic"}

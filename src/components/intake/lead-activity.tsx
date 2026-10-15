@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { readableError } from "@/lib/intake-steps"
 import { cn } from "@/lib/utils"
 
 // The lead's log, newest first. Shows the latest few and opens the rest on
@@ -43,7 +44,7 @@ export function LeadActivity({ rows }: { rows: ActivityRow[] }) {
             <div className="flex min-w-0 flex-1 flex-col gap-x-6 sm:flex-row sm:items-baseline sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{r.text}</p>
-                {r.error && <p className="text-xs text-destructive">{r.error}</p>}
+                {r.error && <p className="text-xs text-destructive" title={r.error}>{readableError(r.error)}</p>}
               </div>
               <p className="shrink-0 text-xs text-muted-foreground sm:text-right">
                 {fmt(r.at)}

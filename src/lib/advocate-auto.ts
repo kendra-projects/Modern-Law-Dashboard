@@ -75,8 +75,15 @@ function covered(intervals: [number, number][], start: number, end: number) {
 
 type Entry = { summary?: string | null; start_at?: string | null; end_at?: string | null; calendar_owner?: { id: number } | null }
 
+// Several bookings picked in a row read the same calendars: keep them a few
+// minutes (Clio allows 50 calendar requests a minute).
+let awayCache: { key: string; at: number; away: Record<string, [number, number][]> } | null = null
+const AWAY_TTL = 10 * 60 * 1000
+
 /** Each advocate's out-of-office time on their own Clio calendar, between `from` and `to`. */
 async function outOfOffice(names: string[], from: number, to: number): Promise<Record<string, [number, number][]>> {
+  const key = `${names.join(",")}:${from}:${to}`
+  if (awayCache?.key === key && Date.now() - awayCache.at < AWAY_TTL) return awayCache.away
   const out: Record<string, [number, number][]> = {}
   const cals = await clioFetch<{ data: { id: number; name: string; type: string }[] }>(`/api/v4/calendars?fields=id,name,type&limit=200`)
   for (const name of names) {
@@ -97,6 +104,7 @@ async function outOfOffice(names: string[], from: number, to: number): Promise<R
     }
     out[name] = spans
   }
+  awayCache = { key, at: Date.now(), away: out }
   return out
 }
 

@@ -73,6 +73,9 @@ const LOCK_TTL = 3 * 60 * 1000
 // one stuck lead doesn't spend every sync on the same error. Its button on the
 // lead page works any time.
 const RETRY_AFTER = 60 * 60 * 1000
+// Clio's rate limit (50 a minute) clears within a minute: try again sooner.
+const RETRY_BUSY = 3 * 60 * 1000
+const busy = (error: string | null) => /failed \(429\)|rate limit/i.test(error ?? "")
 
 async function load(admin: Admin, leadId: string): Promise<State | null> {
   const [{ data: lead }, { data: steps }] = await Promise.all([
@@ -117,7 +120,7 @@ function backingOff(s: State, failureKey: string) {
       x.step_key === failureKey &&
       x.state === "failed" &&
       (x.detail as { by?: string } | null)?.by === BY &&
-      Date.now() - new Date(x.updated_at).getTime() < RETRY_AFTER
+      Date.now() - new Date(x.updated_at).getTime() < (busy(x.error) ? RETRY_BUSY : RETRY_AFTER)
   )
 }
 

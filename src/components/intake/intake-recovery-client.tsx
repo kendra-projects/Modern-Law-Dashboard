@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { LifeBuoy, PauseCircle, XCircle, Wrench } from "lucide-react"
 import { dismissStep } from "@/app/actions/intake-leads"
+import { readableError } from "@/lib/intake-steps"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -58,7 +59,7 @@ function Row({ row }: { row: RecoveryRow }) {
         {row.error && (
           // Two lines in the table; the whole message on hover and for screen readers.
           <span className="mt-1 line-clamp-2 block max-w-md break-words text-xs text-muted-foreground" title={row.error}>
-            {row.error}
+            {readableError(row.error)}
           </span>
         )}
       </td>
