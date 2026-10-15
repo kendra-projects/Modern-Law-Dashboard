@@ -104,7 +104,9 @@ function settled(steps: Steps, kind: "lexi" | "text") {
   const bot = steps.find((s) => s.step_key === `bot_${kind}`)
   if (!bot) return false
   if (bot.state === "awaiting_human") return true
-  return bot.state === "failed" && Date.now() - new Date(bot.updated_at).getTime() < RETRY_AFTER
+  // A failed sign-in says nothing about the lead: try again after a few minutes.
+  const wait = /^The bot couldn't sign in/.test(bot.error ?? "") ? 5 * 60 * 1000 : RETRY_AFTER
+  return bot.state === "failed" && Date.now() - new Date(bot.updated_at).getTime() < wait
 }
 
 async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
