@@ -7,11 +7,13 @@ import {
   upsertAppointment,
 } from "@/lib/acuity"
 import { syncGrowForLead } from "@/lib/grow-sync"
+import { runAutoIntake } from "@/lib/auto-intake"
 import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
 import type { Json } from "@/types/database"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 30
+// The automatic intake steps (Clio, portal, Slack, tasks) run inside the request.
+export const maxDuration = 60
 
 /**
  * The booking note on the client's Clio Grow matter, right away when the
@@ -123,6 +125,8 @@ export async function POST(req: NextRequest) {
       /* best-effort */
     }
     await growNoteSoon(existing.id)
+    // A change can be what the automation was waiting for (e.g. the attorney).
+    await runAutoIntake(existing.id).catch(() => null)
     return NextResponse.json({ ok: true, id: existing.id, updated: true })
   }
 
@@ -158,6 +162,9 @@ export async function POST(req: NextRequest) {
     // The #clientadvocates heads-up for a consult the client booked themselves.
     await sendSelfScheduleAlert(created.id).catch(() => {})
     await growNoteSoon(created.id)
+    // Staff-booked consults arrive with the conflict check done and the
+    // advocate named, so the rest of the intake can happen right away.
+    await runAutoIntake(created.id).catch(() => null)
   }
   return NextResponse.json({ ok: true, id: created?.id ?? null })
 }

@@ -13,6 +13,7 @@ import { postMentions, slackEscape } from "@/lib/consult-post"
 import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/slack"
 import { addGrowNoteTo } from "@/lib/grow-sync"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
+import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -106,9 +107,11 @@ export async function assignAdvocate(
     detail: { advocate: clean, by: user.email ?? user.id },
   })
 
+  const auto = await runAutoIntake(leadId).catch(() => null)
+
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
-  return { ok: true, message: `Assigned to ${clean}.` }
+  return { ok: true, message: `Assigned to ${clean}.${autoIntakeMessage(auto)}` }
 }
 
 /**
@@ -376,11 +379,11 @@ export async function markClientMessage(leadId: string, kind: "text" | "portal" 
   if (kind === "slack") await clearFailure(supabase, leadId, "slack_post")
   if (kind === "portal") await clearFailure(supabase, leadId, "clio_portal")
 
+  const approved = await autoSignoff(leadId).catch(() => false)
   revalidatePath(`/intake/${leadId}`)
-  return {
-    ok: true,
-    message: kind === "text" ? "Text marked as sent." : kind === "portal" ? "Portal invite marked as sent." : "Slack post marked as done.",
-  }
+  if (approved) revalidatePath("/intake")
+  const base = kind === "text" ? "Text marked as sent." : kind === "portal" ? "Portal invite marked as sent." : "Slack post marked as done."
+  return { ok: true, message: approved ? `${base} Every step is done, so the intake was approved.` : base }
 }
 
 /**
