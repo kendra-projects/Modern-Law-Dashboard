@@ -212,14 +212,16 @@ export function LexiStep({
   /** The LexiDesk conversation Acuity got the booking from, when Lexi booked it. */
   conversationUrl: string | null
   clientName: string
-  /** Set once staff have recorded the check. */
-  result: "paused" | "none" | null
+  /** Set once staff (or the bot) recorded the check; "auto" when LexiDesk stopped them on a Lexi booking. */
+  result: "paused" | "none" | "auto" | null
 }) {
   const { pending, run, note } = useAction()
   return (
     <div className="space-y-3">
       <Hint>
-        {result === "paused"
+        {result === "auto"
+          ? "Lexi booked this consult, so LexiDesk stopped the follow-ups itself. Nothing to pause."
+          : result === "paused"
           ? "Lexi's follow-ups for this client are paused."
           : result === "none"
             ? "Nothing was pending in Lexi for this client."

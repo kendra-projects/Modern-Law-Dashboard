@@ -14,6 +14,7 @@ import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/sla
 import { addGrowNoteTo } from "@/lib/grow-sync"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake"
+import { wakeBotFor } from "@/lib/bot"
 import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/conflict-search"
 import { conflictSearchLine } from "@/lib/intake-steps"
 
@@ -84,6 +85,8 @@ export async function setConflictDecision(
 
   // A clear conflict is usually the last thing the automatic steps wait for.
   const auto = cleared ? await runAutoIntake(leadId).catch(() => null) : null
+  // A clear conflict can also make the lead ready for the bot's text.
+  if (cleared) await wakeBotFor(leadId).catch(() => false)
 
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
@@ -121,6 +124,7 @@ export async function assignAdvocate(
   })
 
   const auto = await runAutoIntake(leadId).catch(() => null)
+  await wakeBotFor(leadId).catch(() => false)
 
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")

@@ -8,6 +8,8 @@ import {
 } from "@/lib/acuity"
 import { syncGrowForLead } from "@/lib/grow-sync"
 import { runAutoIntake } from "@/lib/auto-intake"
+import { wakeBotFor } from "@/lib/bot"
+import { markLexiBooked } from "@/lib/lexi-followups"
 import { runConflictSearch } from "@/lib/conflict-search"
 import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
 import type { Json } from "@/types/database"
@@ -133,6 +135,7 @@ export async function POST(req: NextRequest) {
     await growNoteSoon(existing.id)
     // A change can be what the automation was waiting for (e.g. the attorney).
     await runAutoIntake(existing.id).catch(() => null)
+    await wakeBotFor(existing.id).catch(() => false)
     return NextResponse.json({ ok: true, id: existing.id, updated: true })
   }
 
@@ -165,6 +168,8 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+    // Booked through Lexi: LexiDesk stops its own follow-ups.
+    await markLexiBooked(created.id).catch(() => 0)
     // The #clientadvocates heads-up for a consult the client booked themselves,
     // with what the conflict search found in Clio.
     await conflictSearchSoon(created.id)
@@ -173,6 +178,8 @@ export async function POST(req: NextRequest) {
     // Staff-booked consults arrive with the conflict check done and the
     // advocate named, so the rest of the intake can happen right away.
     await runAutoIntake(created.id).catch(() => null)
+    // The bot pauses Lexi right away, and sends the text once the lead is ready.
+    await wakeBotFor(created.id).catch(() => false)
   }
   return NextResponse.json({ ok: true, id: created?.id ?? null })
 }

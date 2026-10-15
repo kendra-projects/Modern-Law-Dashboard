@@ -4,6 +4,7 @@ import { clioConfigured, clioFetch, clioStatus } from "@/lib/clio"
 import { growConfigured, growFetch, growStatus } from "@/lib/grow"
 import { selfScheduleAlertOn } from "@/lib/self-schedule-alert"
 import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
+import { botFrom, botMode } from "@/lib/bot"
 import { slackConfigured } from "@/lib/slack"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -131,6 +132,23 @@ export default async function IntakeSettingsPage({
     day: "numeric",
     year: "numeric",
   })
+
+  // ── Intake bot (lib/bot.ts) ──
+  const bot = botMode()
+  const botReady = Boolean(process.env.BOT_SECRET)
+  // Without it the bot still runs every hour; with it a booking wakes it at once.
+  const botWake = Boolean(process.env.GITHUB_BOT_TOKEN)
+  const { data: lastBot } = admin
+    ? await admin
+        .from("intake_steps")
+        .select("created_at")
+        .or("step_key.like.bot_%,detail->>by.eq.Bot")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null }
+  const botState: "ok" | "waiting" | "problem" = bot === "off" ? "waiting" : botReady ? "ok" : "problem"
+  const botSince = new Date(botFrom()).toLocaleDateString("en-US", { timeZone: "America/Phoenix", month: "short", day: "numeric", year: "numeric" })
 
   return (
     <div className="space-y-6">
@@ -307,6 +325,46 @@ export default async function IntakeSettingsPage({
           </dl>
           <p className="mt-4 text-xs text-muted-foreground">
             Set with AUTO_INTAKE (on, log or off) in Vercel, then redeploy.
+          </p>
+        </div>
+
+        {/* Intake bot */}
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-foreground">Intake bot</h2>
+            <StatusPill state={botState} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The steps no API allows. It pauses Lexi&apos;s follow-ups in LexiDesk for bookings Lexi didn&apos;t make
+            (LexiDesk stops its own), and later the Clio confirmation text. It runs on GitHub Actions; anything it
+            can&apos;t settle goes to Intake Recovery.
+          </p>
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Mode</dt>
+              <dd className="text-right text-foreground">
+                {bot === "on" ? "On" : bot === "dry" ? "Test run (notes what it would do)" : "Off"}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Bookings from</dt>
+              <dd className="text-foreground">{botSince}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Key</dt>
+              <dd className="text-foreground">{botReady ? "Set" : "Missing"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Runs</dt>
+              <dd className="text-right text-foreground">{botWake ? "On each booking, and hourly" : "Hourly"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Last result</dt>
+              <dd className="text-foreground">{lastBot ? fmt(lastBot.created_at) : "None yet"}</dd>
+            </div>
+          </dl>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Set with BOT_MODE (on, dry or off) in Vercel, then redeploy.
           </p>
         </div>
       </div>

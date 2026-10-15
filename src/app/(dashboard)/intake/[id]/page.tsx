@@ -20,6 +20,7 @@ import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
 import { savedSearch } from "@/lib/conflict-search"
+import { botHandles, botMode, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -156,7 +157,8 @@ export default async function IntakeDetailPage({
   // the consult, and what staff recorded after checking.
   const lexiUrl = ((lead.raw_payload as { extras?: { lexidesk_conversation_url?: string } } | null)?.extras?.lexidesk_conversation_url ?? null)
   const lexiStep = lastDone("lexi_followups")
-  const lexiResult = lexiStep ? ((lexiStep.detail as { result?: string } | null)?.result === "none" ? "none" : "paused") : null
+  const lexiRaw = (lexiStep?.detail as { result?: string } | null)?.result
+  const lexiResult = lexiStep ? (lexiRaw === "none" ? "none" : lexiRaw === "auto" ? "auto" : "paused") : null
 
   // What the dashboard's conflict search found (lib/conflict-search.ts). The
   // sync this page pings runs it when it is missing or out of date.
@@ -183,6 +185,14 @@ export default async function IntakeDetailPage({
     lead.source === "acuity" &&
     new Date(lead.created_at).getTime() >= new Date(autoIntakeFrom()).getTime()
   const autoLine = auto ? " Done on its own once the conflict check is clear and an advocate is assigned." : ""
+  // The two steps with no API are the intake bot's (lib/bot.ts).
+  const bot = botMode()
+  const botLine = (kind: BotKind, what: string) =>
+    !botHandles(lead, kind)
+      ? ""
+      : bot === "on"
+        ? ` The bot ${what} on its own.`
+        : " The bot is on a test run: it notes what it would do, and staff still do this step."
 
   // The intake steps, in the order the work is done.
   const raw: (Omit<WorkspaceStep, "state"> & { ok: boolean | "failed" | "waiting" })[] = [
@@ -270,7 +280,7 @@ export default async function IntakeDetailPage({
       title: "Pause Lexi follow-ups",
       ok: Boolean(lexiResult),
       summary: lexiStep ? whoWhen("lexi_followups") : lexiUrl ? "Booked by Lexi" : "Not checked",
-      description: "Stops LexiDesk's automatic follow-up texts now that staff are handling the client. LexiDesk has no API, so the pause is clicked in LexiDesk.",
+      description: `Stops LexiDesk's automatic follow-up texts now that staff are handling the client. LexiDesk has no API, so the pause is clicked in LexiDesk.${botLine("lexi", "pauses them")}`,
       body: <LexiStep leadId={lead.id} conversationUrl={lexiUrl} clientName={clientName} result={lexiResult} />,
     },
     {
@@ -343,7 +353,7 @@ export default async function IntakeDetailPage({
       title: "Confirmation text",
       ok: textDone,
       summary: textDone ? whoWhen("clio_text_sent") : "Not sent",
-      description: "The consult confirmation in the firm's wording, sent to the client from Clio Texting.",
+      description: `The consult confirmation in the firm's wording, sent to the client from Clio Texting.${botLine("text", "sends it from the matter once the conflict check is clear and an advocate is assigned")}`,
       body: (
         <TextStep
           leadId={lead.id}

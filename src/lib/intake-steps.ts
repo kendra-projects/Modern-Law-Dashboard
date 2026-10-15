@@ -20,6 +20,7 @@ export type StepDetail = {
   hits?: { self?: boolean }[]
   searched?: string[]
   opposing_skipped?: string | null
+  note?: string | null
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
@@ -32,7 +33,11 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     case "acuity_canceled":
       return "Booking canceled in Acuity"
     case "lexi_followups":
-      return d.result === "paused" ? "Lexi follow-ups paused" : "Lexi checked: no follow-ups pending"
+      return d.result === "auto"
+        ? "Lexi booked it, so LexiDesk stopped the follow-ups itself"
+        : d.result === "paused"
+          ? "Lexi follow-ups paused"
+          : "Lexi checked: no follow-ups pending"
     case "conflict_check":
       return d.decision === "clear" ? "Conflict check cleared" : "Conflict found, lead stopped"
     case "conflict_search":
@@ -117,6 +122,14 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     }
     case "auto_lock":
       return "Automatic intake running"
+    case "bot_lexi":
+      return s.state === "awaiting_human" ? "The bot left Lexi's follow-ups for staff" : "The bot couldn't pause Lexi's follow-ups"
+    case "bot_text":
+      return s.state === "awaiting_human" ? "The bot left the confirmation text for staff" : "The bot couldn't send the confirmation text"
+    case "bot_lexi_dry":
+      return `Bot test run (Lexi): ${d.note ?? "would pause the follow-ups"}`
+    case "bot_text_dry":
+      return `Bot test run (text): ${d.note ?? "would send the confirmation text"}`
     default:
       return s.step_key.replace(/_/g, " ")
   }
@@ -142,6 +155,8 @@ export function leadStepFor(stepKey: string): string | null {
   if (stepKey === "slack_alert" || stepKey === "slack_alert_failed" || stepKey.startsWith("acuity_") || stepKey.startsWith("auto_"))
     return "booked"
   if (stepKey.startsWith("slack_")) return "slack"
+  if (stepKey.startsWith("bot_lexi")) return "lexi"
+  if (stepKey.startsWith("bot_text")) return "text"
   const map: Record<string, string> = {
     lexi_followups: "lexi",
     conflict_check: "conflict",

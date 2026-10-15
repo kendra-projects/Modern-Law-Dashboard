@@ -6,6 +6,7 @@ import { syncOpenLeadsFromSlack, syncSlackPosts } from "@/lib/slack-sync"
 import { syncGrowForLead, syncOpenLeadsFromGrow } from "@/lib/grow-sync"
 import { runAutoIntake, runAutoIntakeForOpenLeads } from "@/lib/auto-intake"
 import { runConflictSearch, runConflictSearchForOpenLeads } from "@/lib/conflict-search"
+import { markLexiBooked } from "@/lib/lexi-followups"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -46,14 +47,15 @@ async function run(request: NextRequest) {
       ])
       // Then the automatic intake steps that couldn't run before (Clio down,
       // a Slack hiccup). After the sync, so they see what staff already did.
-      const [auto, conflict] = await Promise.all([
+      const [auto, conflict, lexi] = await Promise.all([
         runAutoIntakeForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
         runConflictSearchForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
+        markLexiBooked().catch(() => 0),
       ])
       return NextResponse.json({
         ok: true,
         checked: clio.checked,
-        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran,
+        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran + lexi,
         slack,
         grow,
         auto,
@@ -81,9 +83,10 @@ async function run(request: NextRequest) {
       syncGrowForLead(lead.id).catch(() => []),
     ])
     // After the sync, so both see the Clio records it linked.
-    const [auto, conflict] = await Promise.all([
+    const [auto, conflict, lexi] = await Promise.all([
       runAutoIntake(lead.id).catch(() => null),
       runConflictSearch(lead.id).catch(() => null),
+      markLexiBooked(lead.id).catch(() => 0),
     ])
     const autoChanged = Boolean(auto && auto.mode === "on" && (auto.done.length || auto.failed.length))
     return NextResponse.json({
@@ -94,6 +97,7 @@ async function run(request: NextRequest) {
         ...(grow.length ? ["grow"] : []),
         ...(autoChanged ? ["auto"] : []),
         ...(conflict ? ["conflict"] : []),
+        ...(lexi ? ["lexi"] : []),
       ],
     })
   } catch (e) {
