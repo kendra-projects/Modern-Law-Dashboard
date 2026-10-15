@@ -23,7 +23,7 @@ import { conflictAutoOn, savedSearch } from "@/lib/conflict-search"
 import { advocateAutoOn } from "@/lib/advocate-auto"
 import { mailConfigured } from "@/lib/mail"
 import { CONFLICT_EMAIL, conflictEmailTo } from "@/lib/conflict-email"
-import { botHandles, botMode, type BotKind } from "@/lib/bot"
+import { botHandles, botModeFor, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -207,11 +207,10 @@ export default async function IntakeDetailPage({
     new Date(lead.created_at).getTime() >= new Date(autoIntakeFrom()).getTime()
   const autoLine = auto ? " Done on its own once the conflict check is clear and an advocate is assigned." : ""
   // The two steps with no API are the intake bot's (lib/bot.ts).
-  const bot = botMode()
   const botLine = (kind: BotKind, what: string) =>
     !botHandles(lead, kind)
       ? ""
-      : bot === "on"
+      : botModeFor(kind) === "on"
         ? ` The bot ${what} on its own.`
         : " The bot is on a test run: it notes what it would do, and staff still do this step."
 

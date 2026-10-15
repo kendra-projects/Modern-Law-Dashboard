@@ -20,8 +20,9 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 //
 // BOT_MODE=on lets it click Pause and Send; BOT_MODE=dry sends it through the
 // same pages without those clicks (a test run, recorded on the lead); anything
-// else gives it nothing to do. BOT_KINDS picks its jobs ("lexi", "text" or
-// both; Lexi only until the Clio side is set up). Each job has its own first
+// else gives it nothing to do. BOT_LEXI_MODE and BOT_TEXT_MODE set one job's
+// mode on its own (the text ran as a test while Lexi was live). BOT_KINDS
+// picks its jobs ("lexi", "text" or both). Each job has its own first
 // booking date: pausing Lexi is harmless on older open leads, but a text only
 // goes to bookings made from BOT_TEXT_FROM on, so the bot never texts a
 // client staff already texted by hand. The dashboard wakes it when a
@@ -36,6 +37,11 @@ export function botMode(): BotMode {
   return v === "on" || v === "dry" ? v : "off"
 }
 export type BotKind = "lexi" | "text"
+/** One job's mode: BOT_LEXI_MODE / BOT_TEXT_MODE when set, else BOT_MODE. */
+export function botModeFor(kind: BotKind): BotMode {
+  const v = (process.env[`BOT_${kind.toUpperCase()}_MODE`] ?? "").trim().toLowerCase()
+  return v === "on" || v === "dry" || v === "off" ? v : botMode()
+}
 export function botKinds(): BotKind[] {
   const v = (process.env.BOT_KINDS ?? "lexi").toLowerCase()
   return (["lexi", "text"] as const).filter((k) => v.includes(k))
@@ -50,10 +56,10 @@ export const botFrom = () =>
     .map((k) => FROM[k]())
     .sort()[0] ?? FROM.lexi()
 const inRange = (lead: Pick<IntakeLead, "created_at">, kind: BotKind) =>
-  botKinds().includes(kind) && new Date(lead.created_at).getTime() >= new Date(FROM[kind]()).getTime()
+  botKinds().includes(kind) && botModeFor(kind) !== "off" && new Date(lead.created_at).getTime() >= new Date(FROM[kind]()).getTime()
 /** The bot (on or on a test run) has this job for this lead. */
 export const botHandles = (lead: Pick<IntakeLead, "source" | "created_at">, kind: BotKind) =>
-  botMode() !== "off" && lead.source === "acuity" && inRange(lead, kind)
+  lead.source === "acuity" && inRange(lead, kind)
 const BOT_REPO = () => process.env.BOT_REPO?.trim() || "abdulqayyum3116-art/modern-law-bot"
 
 export const BOT_BY = "Bot"
@@ -69,6 +75,8 @@ export type BotTask =
       client: string
       phone: string | null
       email: string | null
+      /** A test run: go through the pages, click nothing that changes anything. */
+      dry: boolean
     }
   | {
       kind: "text"
@@ -79,6 +87,9 @@ export type BotTask =
       /** The matter's Text messages tab in Clio. */
       texts_url: string
       text: string
+      /** When the booking came in: a text the firm sent after this means it's done. */
+      booked_at: string
+      dry: boolean
     }
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>
@@ -125,7 +136,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
       (consult == null || consult > Date.now() - LEXI_WINDOW) &&
       (lead.phone || lead.email)
     ) {
-      out.push({ kind: "lexi", lead_id: lead.id, client, phone: lead.phone, email: lead.email })
+      out.push({ kind: "lexi", lead_id: lead.id, client, phone: lead.phone, email: lead.email, dry: botModeFor("lexi") === "dry" })
     }
 
     // The text needs what the lead page needs before Send: the conflict clear,
@@ -163,6 +174,8 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
           matter_id: lead.clio_matter_id,
           texts_url: `${CLIO_APP}/matters/${lead.clio_matter_id}/communications?tab=3`,
           text: sms.text,
+          booked_at: lead.created_at,
+          dry: botModeFor("text") === "dry",
         })
       }
     }
@@ -184,10 +197,11 @@ async function openLeads(admin: Admin, leadId?: string) {
   return (data ?? []) as IntakeLead[]
 }
 
-/** Everything the bot can do now. Empty when BOT_MODE is off. */
+/** Everything the bot can do now. Empty when every job is off. Each task says whether it's a test run. */
 export async function botTasks(): Promise<{ mode: BotMode; tasks: BotTask[] }> {
-  const mode = botMode()
   const admin = createAdminClient()
+  const live = botKinds().map(botModeFor).filter((m) => m !== "off")
+  const mode: BotMode = live.includes("on") ? "on" : live.length ? "dry" : "off"
   if (mode === "off" || !admin) return { mode, tasks: [] }
   return { mode, tasks: await tasksFor(admin, await openLeads(admin)) }
 }
@@ -240,7 +254,7 @@ export async function recordBotResult(r: { lead_id: string; kind: "lexi" | "text
 export async function wakeBotFor(leadId: string): Promise<boolean> {
   const token = process.env.GITHUB_BOT_TOKEN?.trim()
   const admin = createAdminClient()
-  if (!token || !admin || botMode() === "off") return false
+  if (!token || !admin || !botKinds().some((k) => botModeFor(k) !== "off")) return false
   const tasks = await tasksFor(admin, await openLeads(admin, leadId))
   if (!tasks.length) return false
   const res = await fetch(`https://api.github.com/repos/${BOT_REPO()}/dispatches`, {
