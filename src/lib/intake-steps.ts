@@ -179,6 +179,8 @@ export function conflictSearchLine(s: { flags: number; hits: { self?: boolean }[
 export function readableError(raw: string | null | undefined): string {
   if (!raw) return ""
   // The intake bot's notes: Playwright's call log means "the page didn't do what it expected".
+  if (/^The bot couldn't sign in to Clio: Clio's saved sign-in has run out/.test(raw))
+    return "The bot's Clio sign-in has run out, so nothing was sent. Sign in again from the bot's Codespace (npm run clio-login); the bot picks it up on its next run. Until then, send the text by hand."
   if (/^The bot couldn't sign in to Clio/.test(raw))
     return "The bot couldn't sign in to Clio, so nothing was sent. It tries again on its next run (every hour), or send the text by hand."
   if (/^The bot couldn't (send the text|pause Lexi): .*(Timeout|locator|waiting for)/.test(raw))
