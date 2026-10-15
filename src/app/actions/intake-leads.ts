@@ -479,16 +479,23 @@ export async function addGrowNote(leadId: string, matterRef: string): Promise<Ac
   return r
 }
 
-/** The conflict step's Search again: looks the names up in Clio afresh. Reads only. */
+/**
+ * The conflict step's Search again: looks the names up in Clio afresh (reads
+ * only), and with CONFLICT_AUTO on clears the check when nothing is flagged.
+ */
 export async function searchConflictsAgain(leadId: string): Promise<ActionResult> {
   const { user } = await requireUser()
   if (!user) return { ok: false, message: "Not authenticated." }
   if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
   try {
     const r = await runConflictSearch(leadId, { force: true })
-    if (!r) return { ok: false, message: "Nothing to search: the conflict check is already decided, or Clio isn't connected." }
+    if (!r?.search) return { ok: false, message: "Nothing to search: the conflict check is already decided, or Clio isn't connected." }
     revalidatePath(`/intake/${leadId}`)
-    return { ok: true, message: `Searched again: ${conflictSearchLine(r)}.` }
+    if (r.cleared) revalidatePath("/intake")
+    return {
+      ok: true,
+      message: `Searched again: ${conflictSearchLine(r.search)}.${r.cleared ? " Nothing was flagged, so the conflict check was cleared." : ""}`,
+    }
   } catch (e) {
     return { ok: false, message: `Clio couldn't be searched just now (${e instanceof Error ? e.message.slice(0, 120) : "error"}).` }
   }

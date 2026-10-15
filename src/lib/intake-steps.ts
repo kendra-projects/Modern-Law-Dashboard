@@ -39,7 +39,11 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
           ? "Lexi follow-ups paused"
           : "Lexi checked: no follow-ups pending"
     case "conflict_check":
-      return d.decision === "clear" ? "Conflict check cleared" : "Conflict found, lead stopped"
+      return d.decision === "clear"
+        ? d.by === "Automatic"
+          ? "Conflict check cleared automatically: nothing flagged in Clio"
+          : "Conflict check cleared"
+        : "Conflict found, lead stopped"
     case "conflict_search":
       return `Conflict search: ${conflictSearchLine({ flags: d.flags ?? 0, hits: d.hits ?? [], searched: d.searched ?? ["Clio"], opposing_skipped: d.opposing_skipped ?? null })}`
     case "advocate_assigned":

@@ -19,7 +19,7 @@ import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
-import { savedSearch } from "@/lib/conflict-search"
+import { conflictAutoOn, savedSearch } from "@/lib/conflict-search"
 import { botHandles, botMode, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
 
@@ -297,8 +297,9 @@ export default async function IntakeDetailPage({
               : conflictSearch
                 ? "Nothing flagged, confirm"
                 : "Waiting on the check",
-      description:
-        "The dashboard searches Clio for the client and the opposing party and flags what needs a look. Staff decide and record the result here.",
+      description: conflictAutoOn()
+        ? "The dashboard searches Clio for the client and the opposing party. A clean search clears the check on its own; a match, or a name it couldn't search, waits here for staff to decide."
+        : "The dashboard searches Clio for the client and the opposing party and flags what needs a look. Staff decide and record the result here.",
       body: (
         <ConflictStep
           leadId={lead.id}

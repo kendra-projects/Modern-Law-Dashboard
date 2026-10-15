@@ -49,13 +49,13 @@ async function run(request: NextRequest) {
       // a Slack hiccup). After the sync, so they see what staff already did.
       const [auto, conflict, lexi] = await Promise.all([
         runAutoIntakeForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
-        runConflictSearchForOpenLeads().catch(() => ({ checked: 0, ran: 0 })),
+        runConflictSearchForOpenLeads().catch(() => ({ checked: 0, ran: 0, cleared: 0 })),
         markLexiBooked().catch(() => 0),
       ])
       return NextResponse.json({
         ok: true,
         checked: clio.checked,
-        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran + lexi,
+        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran + conflict.cleared + lexi,
         slack,
         grow,
         auto,
@@ -96,7 +96,7 @@ async function run(request: NextRequest) {
         ...(slack.length ? ["slack"] : []),
         ...(grow.length ? ["grow"] : []),
         ...(autoChanged ? ["auto"] : []),
-        ...(conflict ? ["conflict"] : []),
+        ...(conflict && (conflict.search || conflict.cleared) ? ["conflict"] : []),
         ...(lexi ? ["lexi"] : []),
       ],
     })

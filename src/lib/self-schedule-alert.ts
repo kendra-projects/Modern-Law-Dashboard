@@ -35,7 +35,12 @@ type Lead = Pick<
   | "description"
 >
 
-export function selfScheduleAlertText(lead: Lead, location: string | null, conflictSearch: string | null = null): string {
+export function selfScheduleAlertText(
+  lead: Lead,
+  location: string | null,
+  conflictSearch: string | null = null,
+  conflictCleared = false
+): string {
   const name = [lead.client_first, lead.client_last].filter(Boolean).join(" ") || "a new client"
   const consult = lead.consult_type === "LSS" ? "Limited Scope Strategy Session" : "Initial Consultation"
   const when = lead.consult_datetime
@@ -56,9 +61,15 @@ export function selfScheduleAlertText(lead: Lead, location: string | null, confl
     field("Opposing party", lead.opposing_party_name),
     field("Matter type", lead.matter_type),
     field("Why they booked", why && (why.length > 600 ? `${why.slice(0, 600)}…` : why)),
-    field("Conflict search", conflictSearch && `${conflictSearch[0].toUpperCase()}${conflictSearch.slice(1)}. Details on the lead page.`),
+    field(
+      "Conflict search",
+      conflictSearch &&
+        `${conflictSearch[0].toUpperCase()}${conflictSearch.slice(1)}.${conflictCleared ? " Cleared automatically." : " Details on the lead page."}`
+    ),
     `<${SITE}/intake/${lead.id}|Open the lead in the dashboard>`,
-    "Please run the conflict check, make sure the lead is qualified, and check the consulting attorney.",
+    conflictCleared
+      ? "Please assign the advocate, make sure the lead is qualified, and check the consulting attorney."
+      : "Please run the conflict check, make sure the lead is qualified, and check the consulting attorney.",
   ]
     .filter(Boolean)
     .join("\n")
@@ -71,7 +82,7 @@ export async function sendSelfScheduleAlert(leadId: string): Promise<void> {
 
   const { data: lead } = await admin
     .from("intake_leads")
-    .select("id, status, self_scheduled, client_first, client_last, consult_datetime, consult_type, consulting_attorney, method, county, opposing_party_name, matter_type, description")
+    .select("id, status, self_scheduled, conflict_status, client_first, client_last, consult_datetime, consult_type, consulting_attorney, method, county, opposing_party_name, matter_type, description")
     .eq("id", leadId)
     .maybeSingle()
   if (!lead || lead.self_scheduled !== true || ["canceled", "stopped", "failed"].includes(lead.status)) return
@@ -88,7 +99,7 @@ export async function sendSelfScheduleAlert(leadId: string): Promise<void> {
   try {
     const posted = await postToChannel(
       CLIENT_ADVOCATES_CHANNEL,
-      selfScheduleAlertText(lead, appt?.location ?? null, found ? conflictSearchLine(found) : null)
+      selfScheduleAlertText(lead, appt?.location ?? null, found ? conflictSearchLine(found) : null, lead.conflict_status === "clear")
     )
     await admin.from("intake_steps").insert({
       lead_id: leadId,

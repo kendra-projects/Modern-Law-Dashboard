@@ -3,6 +3,8 @@ import "server-only"
 import { clioFetch, clioStatus } from "@/lib/clio"
 import { CLIO_APP } from "@/lib/clio-intake"
 import { growFetch, growStatus } from "@/lib/grow"
+import { runAutoIntake } from "@/lib/auto-intake"
+import { wakeBotFor } from "@/lib/bot"
 import { logStep } from "@/lib/intake-step-log"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
@@ -10,10 +12,17 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // The conflict check's search, done for staff: the client's and the opposing
 // party's names looked up in Clio Manage (each matching contact, the matters
 // they are the client on and the matters they are related to) and in Clio
-// Grow (the contact's status there). It only reads. The decision stays with
-// staff: the result is shown on the lead's conflict step, with the matches the
-// firm should look at flagged. Clio's own conflict check also searches notes,
-// documents and custom fields, so the step still links to it.
+// Grow (the contact's status there). It only reads Clio. The result is shown
+// on the lead's conflict step, with the matches the firm should look at
+// flagged. Clio's own conflict check also searches notes, documents and custom
+// fields, so the step still links to it.
+//
+// With CONFLICT_AUTO=on (the firm's call, Oct 2026) a clean search clears the
+// check on its own: both names searched in Clio Manage and Grow without an
+// error, and nothing flagged. Everything else (a match, an opposing party
+// that couldn't be searched, an error) stays with staff, who decide on the
+// lead page. A match is never stopped automatically: most are only the same
+// name, and a stopped lead gets nothing more.
 //
 // Runs when a booking comes in, when the lead's page opens and with the
 // open-leads sync, for leads whose conflict check is still pending. A saved
@@ -22,6 +31,9 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 export const CONFLICT_SEARCH = "conflict_search"
 const FRESH_MS = 12 * 60 * 60 * 1000
 const PER_SIDE = 8
+
+export const conflictAutoOn = () => (process.env.CONFLICT_AUTO ?? "").trim().toLowerCase() === "on"
+const conflictAutoFrom = () => process.env.CONFLICT_AUTO_FROM?.trim() || "2026-10-01T07:00:00Z"
 
 export type ConflictRole = { text: string; url: string | null; flag: boolean }
 export type ConflictHit = {
@@ -51,11 +63,24 @@ export type ConflictSearch = {
 
 type Lead = Pick<
   IntakeLead,
-  "id" | "status" | "client_first" | "client_last" | "email" | "phone" | "opposing_party_name" | "conflict_status" | "clio_client_contact_id" | "clio_op_contact_id" | "clio_matter_id"
+  | "id"
+  | "source"
+  | "created_at"
+  | "status"
+  | "client_first"
+  | "client_last"
+  | "email"
+  | "phone"
+  | "opposing_party_name"
+  | "conflict_status"
+  | "clio_client_contact_id"
+  | "clio_op_contact_id"
+  | "clio_matter_id"
 >
 const LEAD_COLUMNS =
-  "id, status, client_first, client_last, email, phone, opposing_party_name, conflict_status, clio_client_contact_id, clio_op_contact_id, clio_matter_id"
+  "id, source, created_at, status, client_first, client_last, email, phone, opposing_party_name, conflict_status, clio_client_contact_id, clio_op_contact_id, clio_matter_id"
 
+type Admin = NonNullable<ReturnType<typeof createAdminClient>>
 type Contact = { id: number; name: string; primary_email_address?: string | null; primary_phone_number?: string | null }
 type Matter = { id: number; display_number: string; status: string }
 type Relationship = { id: number; description: string | null; matter: (Matter & { client?: { id: number; name: string } | null }) | null }
@@ -253,12 +278,52 @@ export function savedSearch(steps: Pick<IntakeStep, "step_key" | "detail">[]): C
   return (s?.detail as ConflictSearch | null) ?? null
 }
 
+/** Why this search can't clear the check on its own, or null when it can. */
+export function cannotAutoClear(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags">): string | null {
+  if (x.errors.length) return "the search didn't fully go through"
+  if (!x.searched.includes("Clio Manage") || !x.searched.includes("Clio Grow")) return "Clio Manage and Grow weren't both searched"
+  if (!x.opposing) return "the opposing party wasn't searched"
+  if (x.flags) return `${x.flags} ${x.flags === 1 ? "match" : "matches"} to look at`
+  return null
+}
+
+/**
+ * With CONFLICT_AUTO=on, clear a pending check whose search came back clean,
+ * then let the automatic intake and the bot carry on. Returns true when it
+ * cleared. Same record as staff clicking No conflict, signed "Automatic".
+ */
+async function settleConflict(admin: Admin, lead: Lead, search: ConflictSearch): Promise<boolean> {
+  if (!conflictAutoOn() || lead.source !== "acuity" || !pending(lead)) return false
+  if (new Date(lead.created_at).getTime() < new Date(conflictAutoFrom()).getTime()) return false
+  if (cannotAutoClear(search) || !fresh(search, lead)) return false
+  const early = ["received", "enriched", "conflict_pending"].includes(lead.status)
+  const { data, error } = await admin
+    .from("intake_leads")
+    .update({ conflict_status: "clear", ...(early ? { status: "conflict_clear" as const } : {}) })
+    .eq("id", lead.id)
+    .eq("conflict_status", "pending")
+    .select("id")
+  if (error || !data?.length) return false
+  await logStep(admin, {
+    lead_id: lead.id,
+    step_key: "conflict_check",
+    state: "done",
+    detail: { decision: "clear", by: "Automatic", search: { flags: 0, at: search.at, searched: search.searched } },
+  })
+  await runAutoIntake(lead.id).catch(() => null)
+  await wakeBotFor(lead.id).catch(() => false)
+  return true
+}
+
 /**
  * Search for a lead whose conflict check is pending, unless a fresh search is
- * saved. `force` searches again anyway (the lead page's button). Returns the
- * search when one ran, null when nothing needed to.
+ * saved, and clear it if CONFLICT_AUTO allows. `force` searches again anyway
+ * (the lead page's button). `search` is set when a search ran.
  */
-export async function runConflictSearch(leadId: string, opts: { force?: boolean } = {}): Promise<ConflictSearch | null> {
+export async function runConflictSearch(
+  leadId: string,
+  opts: { force?: boolean } = {}
+): Promise<{ search: ConflictSearch | null; cleared: boolean } | null> {
   const admin = createAdminClient()
   if (!admin || !(await clioStatus()).connected) return null
   const [{ data: lead }, { data: step }] = await Promise.all([
@@ -266,16 +331,19 @@ export async function runConflictSearch(leadId: string, opts: { force?: boolean 
     admin.from("intake_steps").select("step_key, detail").eq("lead_id", leadId).eq("step_key", CONFLICT_SEARCH).maybeSingle(),
   ])
   if (!lead || !pending(lead as Lead)) return null
-  if (!opts.force && fresh(savedSearch(step ? [step] : []), lead as Lead)) return null
+  const saved = savedSearch(step ? [step] : [])
+  if (!opts.force && saved && fresh(saved, lead as Lead)) {
+    return { search: null, cleared: await settleConflict(admin, lead as Lead, saved) }
+  }
   const result = await searchConflicts(lead as Lead)
   await logStep(admin, { lead_id: leadId, step_key: CONFLICT_SEARCH, state: "done", detail: result as unknown as Record<string, unknown> })
-  return result
+  return { search: result, cleared: await settleConflict(admin, lead as Lead, result) }
 }
 
-/** The open-leads sync: search the pending leads that have no fresh search, a few per run. */
+/** The open-leads sync: search the pending leads that have no fresh search (a few per run), and settle the clean ones. */
 export async function runConflictSearchForOpenLeads(limit = 3) {
   const admin = createAdminClient()
-  if (!admin || !(await clioStatus()).connected) return { checked: 0, ran: 0 }
+  if (!admin || !(await clioStatus()).connected) return { checked: 0, ran: 0, cleared: 0 }
   const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
   const { data: leads } = await admin
     .from("intake_leads")
@@ -286,7 +354,7 @@ export async function runConflictSearchForOpenLeads(limit = 3) {
     .order("consult_datetime", { ascending: true })
     .limit(50)
   const list = (leads ?? []) as Lead[]
-  if (!list.length) return { checked: 0, ran: 0 }
+  if (!list.length) return { checked: 0, ran: 0, cleared: 0 }
   const { data: steps } = await admin
     .from("intake_steps")
     .select("lead_id, step_key, detail")
@@ -294,16 +362,22 @@ export async function runConflictSearchForOpenLeads(limit = 3) {
     .in("lead_id", list.map((l) => l.id))
   const saved = new Map((steps ?? []).map((s) => [s.lead_id, s.detail as unknown as ConflictSearch]))
   let ran = 0
+  let cleared = 0
   for (const lead of list) {
-    if (ran >= limit) break
-    if (fresh(saved.get(lead.id) ?? null, lead)) continue
+    const have = saved.get(lead.id) ?? null
     try {
+      if (have && fresh(have, lead)) {
+        if (await settleConflict(admin, lead, have)) cleared++
+        continue
+      }
+      if (ran >= limit) continue
       const result = await searchConflicts(lead)
       await logStep(admin, { lead_id: lead.id, step_key: CONFLICT_SEARCH, state: "done", detail: result as unknown as Record<string, unknown> })
       ran++
+      if (await settleConflict(admin, lead, result)) cleared++
     } catch {
       /* Clio hiccup: the next run tries again */
     }
   }
-  return { checked: list.length, ran }
+  return { checked: list.length, ran, cleared }
 }
