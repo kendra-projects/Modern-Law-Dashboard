@@ -241,8 +241,23 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   }
   const hasMatter = Boolean(matterId && contactId) || matterComing
 
+  // A matter linked in this run can already carry the client's portal and
+  // tasks: a second booking for the same person reuses the first booking's
+  // matter. The sync before this run couldn't see them without the matter, so
+  // look again before sending anything.
+  let portalDone = s.portal
+  let tasksDone = s.tasks
+  if (!dry && matterId && contactId && matterId !== lead.clio_matter_id) {
+    await syncLeadFromClio({ ...lead, clio_matter_id: matterId, clio_client_contact_id: contactId, clio_portal_id: null }).catch(() => [])
+    const fresh = await load(admin, lead.id)
+    if (fresh) {
+      portalDone = fresh.portal
+      tasksDone = fresh.tasks
+    }
+  }
+
   // ── Client portal invite ──
-  if (!s.portal) {
+  if (!portalDone) {
     if (!hasMatter) waiting.push("Portal invite: needs the Clio matter")
     else if (!advocate) waiting.push("Portal invite: needs the advocate")
     else if (nameIssue) waiting.push(`Portal invite: ${nameIssue}`)
@@ -317,7 +332,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   }
 
   // ── Follow-up tasks ──
-  if (!s.tasks) {
+  if (!tasksDone) {
     if (!hasMatter) waiting.push("Follow-up tasks: need the Clio matter")
     else if (!advocate) waiting.push("Follow-up tasks: need the advocate")
     else if (backingOff(s, "clio_tasks")) waiting.push("Follow-up tasks: try again an hour after the last error")
