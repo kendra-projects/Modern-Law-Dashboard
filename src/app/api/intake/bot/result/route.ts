@@ -4,6 +4,7 @@ import { recordBotResult, type BotOutcome } from "@/lib/bot"
 import { botAllowed } from "@/lib/bot-auth"
 
 export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
 
 const OUTCOMES: BotOutcome[] = ["paused", "none", "sent", "dry", "needs_staff", "failed"]
 

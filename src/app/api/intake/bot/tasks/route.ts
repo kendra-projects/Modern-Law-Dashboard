@@ -3,6 +3,7 @@ import { botTasks } from "@/lib/bot"
 import { botAllowed } from "@/lib/bot-auth"
 
 export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
 
 /** What the intake bot should do now (lib/bot.ts). The bot calls this with BOT_SECRET. */
 export async function GET(request: NextRequest) {
