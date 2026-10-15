@@ -5,6 +5,7 @@ import { CLIO_APP } from "@/lib/clio-intake"
 import { confirmationText, consultMethod } from "@/lib/client-messages"
 import { growState, nameDiffers } from "@/lib/grow-note"
 import { autoSignoff } from "@/lib/auto-intake"
+import { isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -134,7 +135,8 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
       inRange(lead, "text") &&
       !settled(rows, "text") &&
       lead.conflict_status === "clear" &&
-      lead.assigned_advocate &&
+      // A real advocate signs it: Acuity's "Client" or "Other" is who booked.
+      isAdvocate(lead.assigned_advocate) &&
       lead.clio_matter_id &&
       lead.phone &&
       consult != null &&
