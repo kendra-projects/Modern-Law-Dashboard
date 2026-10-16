@@ -55,6 +55,7 @@ import {
   withinRange,
 } from "@/components/time-range-select"
 import { socialStatusMeta, lifecycleMeta, type StatusMeta } from "@/lib/status"
+import { manualUploadMeta, manualUploadNote } from "@/lib/manual-upload"
 import { shortDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type {
@@ -97,6 +98,9 @@ export interface ArchiveRow {
     /** Platforms (lowercase: "facebook", "youtube"…) whose recovery retries are
      * exhausted — shown as Failed even if their stored status is still stale. */
     failedPlatforms: string[]
+    /** Platforms staff upload by hand (lib/manual-upload.ts), e.g. a Facebook
+     * video over the Reel limit. */
+    manualPlatforms: string[]
   }
   consult?: {
     summary: string | null
@@ -572,8 +576,10 @@ function DetailDrawer({
                       // Failed, overriding its stale stored status (e.g. Facebook
                       // stuck on "pending" after the reel upload actually failed).
                       const failed = new Set(ep.failedPlatforms)
+                      // Marked "upload by hand" and not posted yet: say so instead.
+                      const manual = (p: string, s: SocialStatus) => s !== "published" && ep.manualPlatforms.includes(p)
                       const socialMeta = (p: string, s: SocialStatus) =>
-                        failed.has(p) ? lifecycleMeta.failed : socialStatusMeta[s]
+                        failed.has(p) ? lifecycleMeta.failed : manual(p, s) ? manualUploadMeta : socialStatusMeta[s]
                       return (
                         <>
                           <PublishRow
@@ -606,6 +612,7 @@ function DetailDrawer({
                                 label="Facebook"
                                 meta={socialMeta("facebook", ep.facebookStatus)}
                                 url={ep.facebookUrl}
+                                note={manual("facebook", ep.facebookStatus) ? manualUploadNote("facebook") : undefined}
                               />
                             </>
                           )}
@@ -796,14 +803,20 @@ function PublishRow({
   label,
   meta,
   url,
+  note,
 }: {
   label: string
   meta: StatusMeta
   url: string | null
+  /** A line under the label, e.g. why it must be uploaded by hand. */
+  note?: string
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-card/60 p-3">
-      <span className="flex-1 text-sm font-medium text-foreground">{label}</span>
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-medium text-foreground">{label}</span>
+        {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
+      </div>
       <StatusBadge meta={meta} />
       {url ? (
         <a

@@ -12,7 +12,7 @@ export default async function ArchivePage({
 }: {
   searchParams: { open?: string; tab?: string }
 }) {
-  const { episodes, summaries, exhausted, failedPlatforms } = await getArchive()
+  const { episodes, summaries, exhausted, failedPlatforms, manualPlatforms } = await getArchive()
 
   const episodeRows: ArchiveRow[] = episodes.map((e) => ({
     id: e.id,
@@ -58,6 +58,7 @@ export default async function ArchivePage({
       youtubeUrl: e.youtube_url,
       retriesExhausted: exhausted.has(e.id),
       failedPlatforms: Array.from(failedPlatforms.get(e.id) ?? []),
+      manualPlatforms: Array.from(manualPlatforms.get(e.id) ?? []),
     },
   }))
 

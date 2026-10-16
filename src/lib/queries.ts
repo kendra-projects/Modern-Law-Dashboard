@@ -2,6 +2,7 @@ import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
 import { isIntakeLog } from "@/lib/log-workspace"
+import { MANUAL_UPLOAD, manualUploadNote } from "@/lib/manual-upload"
 import type {
   IntakeTranscript,
   EpisodeContent,
@@ -34,6 +35,7 @@ type RetryFlag = {
   status: string
   attempts: number
   max_attempts: number
+  resolved_by?: string | null
 }
 function isExhausted(r: RetryFlag): boolean {
   return (
@@ -61,7 +63,17 @@ function failedPlatformsMap(rows: RetryFlag[] | null): Map<string, Set<string>> 
   }
   return m
 }
-const RETRY_FLAG_COLS = "entity_id, platform, status, attempts, max_attempts"
+// entity_id → platforms staff upload by hand (lib/manual-upload.ts).
+function manualPlatformsMap(rows: RetryFlag[] | null): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>()
+  for (const r of rows ?? []) {
+    if (r.status !== "resolved" || r.resolved_by !== MANUAL_UPLOAD || !r.entity_id || !r.platform) continue
+    if (!m.has(r.entity_id)) m.set(r.entity_id, new Set())
+    m.get(r.entity_id)!.add(r.platform.toLowerCase())
+  }
+  return m
+}
+const RETRY_FLAG_COLS = "entity_id, platform, status, attempts, max_attempts, resolved_by"
 
 export async function getOverviewData() {
   const supabase = await createClient()
@@ -135,6 +147,7 @@ export async function getArchive() {
     summaries: (summariesRes.data ?? []) as SummaryWithIntake[],
     exhausted: exhaustedSet(naRes.data as RetryFlag[] | null),
     failedPlatforms: failedPlatformsMap(naRes.data as RetryFlag[] | null),
+    manualPlatforms: manualPlatformsMap(naRes.data as RetryFlag[] | null),
   }
 }
 
@@ -301,7 +314,9 @@ export async function getActivityFeed(): Promise<ActivityEvent[]> {
     const max = Number(r.max_attempts ?? 5)
     const at = (r.updated_at ?? r.created_at) as string
     const exhausted = r.status !== "resolved" && attempts >= max
-    if (r.status === "resolved")
+    if (r.status === "resolved" && r.resolved_by === MANUAL_UPLOAD)
+      events.push({ id: `rq-${r.id}`, category: "recovery", level: "warning", title: `${plat}: upload by hand`, detail: String(r.last_error ?? manualUploadNote(String(r.platform ?? ""))), at, platform: String(r.platform ?? "") })
+    else if (r.status === "resolved")
       events.push({ id: `rq-${r.id}`, category: "recovery", level: "success", title: `${plat} recovered`, detail: r.resolved_by === "auto" ? "Auto-retried successfully" : "Resolved manually", at, platform: String(r.platform ?? "") })
     else if (exhausted || r.status === "needs_attention")
       events.push({ id: `rq-${r.id}`, category: "recovery", level: "error", title: `${plat} needs attention`, detail: String(r.last_error ?? `All ${max} retry attempts used`), at, platform: String(r.platform ?? "") })

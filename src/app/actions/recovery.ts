@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import { MANUAL_UPLOAD, manualUploadNote } from "@/lib/manual-upload"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -82,6 +83,31 @@ export async function resolveJob(id: string): Promise<ActionResult> {
   revalidatePath("/recovery")
   revalidatePath("/")
   return { ok: true, message: "Marked resolved." }
+}
+
+/**
+ * The platform can't take this upload automatically (e.g. a Facebook video over
+ * the Reel limit): take it off the queue and note that staff upload it by hand.
+ */
+export async function markManualUpload(id: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+
+  const { data: job } = await supabase.from("retry_queue").select("platform").eq("id", id).single()
+  const { error } = await supabase
+    .from("retry_queue")
+    .update({ status: "resolved", resolved_by: MANUAL_UPLOAD, last_error: manualUploadNote(job?.platform ?? "") })
+    .eq("id", id)
+
+  if (error) return { ok: false, message: "Could not update it." }
+
+  revalidatePath("/recovery")
+  revalidatePath("/archive")
+  revalidatePath("/")
+  return { ok: true, message: "Off the queue. The Archive now says to upload it by hand." }
 }
 
 export async function retryAllDue(): Promise<ActionResult> {

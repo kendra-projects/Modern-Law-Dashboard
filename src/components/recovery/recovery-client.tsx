@@ -16,9 +16,10 @@ import {
   FileText,
   Wrench,
   ChevronDown,
+  Upload,
   type LucideIcon,
 } from "lucide-react"
-import { forceRetryJob, resolveJob } from "@/app/actions/recovery"
+import { forceRetryJob, markManualUpload, resolveJob } from "@/app/actions/recovery"
 import {
   TimeRangeSelect,
   useCutoff,
@@ -42,6 +43,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { retryStatusMeta } from "@/lib/status"
+import { MANUAL_UPLOAD } from "@/lib/manual-upload"
 import { dateTime, timeAgo } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { RetryQueueJob } from "@/types/database"
@@ -212,10 +214,12 @@ function JobRow({ job }: { job: Job }) {
                 </Popover>
 
                 {job.resolved_by && (
-                  <Badge variant="success">
+                  <Badge variant={job.resolved_by === MANUAL_UPLOAD ? "warning" : "success"}>
                     {job.resolved_by === "auto"
                       ? "solved automatically"
-                      : "solved manually"}
+                      : job.resolved_by === MANUAL_UPLOAD
+                        ? "upload by hand"
+                        : "solved manually"}
                   </Badge>
                 )}
               </div>
@@ -294,6 +298,20 @@ function JobRow({ job }: { job: Job }) {
                 <Check className="h-3.5 w-3.5" />
                 Resolve
               </Button>
+              {/* Facebook won't take a video over the Reel limit: hand it to staff. */}
+              {job.platform === "facebook" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 sm:flex-initial h-8 text-xs"
+                  disabled={pending}
+                  onClick={() => run(markManualUpload)}
+                  title="Facebook can't take this video automatically: take it off the queue and note it in the Archive"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload by hand
+                </Button>
+              )}
             </div>
           )}
         </div>
