@@ -97,6 +97,55 @@ export async function setConflictDecision(
   }
 }
 
+/**
+ * Undo a conflict stop: put the lead back at the conflict-check decision so staff
+ * can choose again (a misclick, or new information). Only for a lead a conflict
+ * stopped — not one canceled or stopped another way.
+ */
+export async function reopenConflict(leadId: string): Promise<ActionResult> {
+  const { supabase, user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+
+  const { data: current } = await supabase
+    .from("intake_leads")
+    .select("conflict_status")
+    .eq("id", leadId)
+    .maybeSingle()
+  if (!current) return { ok: false, message: "Lead not found." }
+  if (current.conflict_status !== "conflict")
+    return { ok: false, message: "This lead wasn't stopped by a conflict." }
+
+  // Back to the decision point: pending check, early status, so the conflict
+  // step shows its buttons again and the lead leaves the stopped list.
+  const { error } = await supabase
+    .from("intake_leads")
+    .update({ conflict_status: "pending", status: "conflict_pending" })
+    .eq("id", leadId)
+  if (error) return { ok: false, message: "Could not reopen the conflict check." }
+
+  // The earlier stop no longer stands: mark it dismissed so Intake Recovery
+  // stops flagging it, and record who reopened it.
+  await supabase
+    .from("intake_steps")
+    .update({ state: "skipped", updated_at: new Date().toISOString() })
+    .eq("lead_id", leadId)
+    .eq("step_key", "conflict_check")
+    .eq("state", "failed")
+  await supabase.from("intake_steps").insert({
+    lead_id: leadId,
+    step_key: "conflict_reopened",
+    state: "done",
+    detail: { by: user.email ?? user.id },
+  })
+
+  revalidatePath(`/intake/${leadId}`)
+  revalidatePath("/intake")
+  revalidatePath("/intake/recovery")
+  revalidatePath("/")
+  return { ok: true, message: "Conflict check reopened — decide again below." }
+}
+
 /** Assign the lead to an advocate. Human choice; no API involved. */
 export async function assignAdvocate(
   leadId: string,

@@ -48,6 +48,8 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
           ? "Conflict check cleared automatically: nothing flagged in Clio"
           : "Conflict check cleared"
         : "Conflict found, lead stopped"
+    case "conflict_reopened":
+      return "Conflict check reopened"
     case "conflict_search":
       return `Conflict search: ${conflictSearchLine({ flags: d.flags ?? 0, hits: d.hits ?? [], searched: d.searched ?? ["Clio"], opposing_skipped: d.opposing_skipped ?? null })}`
     case "advocate_assigned":
@@ -219,6 +221,7 @@ export function leadStepFor(stepKey: string): string | null {
   const map: Record<string, string> = {
     lexi_followups: "lexi",
     conflict_check: "conflict",
+    conflict_reopened: "conflict",
     conflict_search: "conflict",
     conflict_email: "conflict",
     advocate_assigned: "advocate",
@@ -241,6 +244,6 @@ export type StepCategory = "booking" | "clio" | "decision" | "system"
 export function stepCategory(key: string): StepCategory {
   if (key.startsWith("acuity_")) return "booking"
   if (key.startsWith("clio_") || key.startsWith("grow_")) return "clio"
-  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
+  if (key.startsWith("slack_") || key === "lexi_followups" || key === "conflict_check" || key === "conflict_reopened" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
   return "system"
 }

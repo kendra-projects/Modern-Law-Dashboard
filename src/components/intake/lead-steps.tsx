@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle, StickyNote, RefreshCw } from "lucide-react"
+import { Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, UserCheck, Send, ListChecks, BadgeCheck, PauseCircle, StickyNote, RefreshCw, RotateCcw } from "lucide-react"
 import {
   setConflictDecision,
+  reopenConflict,
   searchConflictsAgain,
   assignAdvocate,
   approveIntake,
@@ -317,7 +318,28 @@ export function ConflictStep({
 }) {
   const { pending, run, note } = useAction()
   if (status === "clear") return <Hint>No conflict. The intake can go ahead.</Hint>
-  if (status === "conflict") return <Hint>A conflict was found, so the intake stopped here.</Hint>
+  if (status === "conflict")
+    return (
+      <div className="space-y-3">
+        <Hint>A conflict was found, so the intake stopped here.</Hint>
+        <Hint>Marked by mistake, or new information? Reopen the check to decide again.</Hint>
+        <Row>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            disabled={pending}
+            onClick={() => {
+              if (window.confirm("Reopen the conflict check? The lead goes back to the decision so you can choose again."))
+                run(() => reopenConflict(leadId))
+            }}
+          >
+            <RotateCcw className={cn("h-3.5 w-3.5", pending && "animate-spin")} /> {pending ? "Reopening…" : "Reopen conflict check"}
+          </Button>
+        </Row>
+        {note}
+      </div>
+    )
   const also = search ? [...search.others, ...search.own] : []
   return (
     <div className="space-y-3">
