@@ -205,7 +205,25 @@ export async function botTasks(): Promise<{ mode: BotMode; tasks: BotTask[] }> {
   const live = botKinds().map(botModeFor).filter((m) => m !== "off")
   const mode: BotMode = live.includes("on") ? "on" : live.length ? "dry" : "off"
   if (mode === "off" || !admin) return { mode, tasks: [] }
-  return { mode, tasks: await tasksFor(admin, await openLeads(admin)) }
+  const leads = await openLeads(admin)
+  await dropPassedTexts(admin, leads)
+  return { mode, tasks: await tasksFor(admin, leads) }
+}
+
+/**
+ * A confirmation text the bot couldn't send is moot once the consult has
+ * passed: its failure is set aside (skipped, kept in the log) so Intake
+ * Recovery doesn't ask anyone to send it.
+ */
+async function dropPassedTexts(admin: Admin, leads: IntakeLead[]) {
+  const passed = leads.filter((l) => l.consult_datetime && new Date(l.consult_datetime).getTime() < Date.now()).map((l) => l.id)
+  if (!passed.length) return
+  await admin
+    .from("intake_steps")
+    .update({ state: "skipped", detail: { by: BOT_BY, note: "The consult has passed, so the text is no longer needed." } })
+    .in("lead_id", passed)
+    .eq("step_key", "bot_text")
+    .eq("state", "failed")
 }
 
 export type BotOutcome = "paused" | "none" | "sent" | "dry" | "needs_staff" | "failed"

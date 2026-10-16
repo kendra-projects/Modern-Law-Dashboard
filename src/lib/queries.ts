@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { isIntakeLog } from "@/lib/log-workspace"
 import type {
   IntakeTranscript,
   EpisodeContent,
@@ -87,7 +88,8 @@ export async function getOverviewData() {
     intakes: (intakesRes.data ?? []) as unknown as IntakeTranscript[],
     episodes: (episodesRes.data ?? []) as unknown as EpisodeContent[],
     summaries: (summariesRes.data ?? []) as unknown as SummaryMatter[],
-    logs: (logsRes.data ?? []) as unknown as SystemLog[],
+    // Intake scenarios' failures show on Intake Activity instead.
+    logs: ((logsRes.data ?? []) as unknown as SystemLog[]).filter((l) => !isIntakeLog(l)),
     exhausted: exhaustedSet(naRes.data as RetryFlag[] | null),
     // Raw recovery rows — System Health needs the attempt counts, not just the
     // "which episodes are dead" set.
@@ -165,7 +167,7 @@ export async function getLogs() {
     .from("system_logs")
     .select("*")
     .order("created_at", { ascending: false })
-  return (data ?? []) as SystemLog[]
+  return ((data ?? []) as SystemLog[]).filter((l) => !isIntakeLog(l))
 }
 
 // ── Unified activity feed ────────────────────────────────────────────────────
@@ -309,7 +311,7 @@ export async function getActivityFeed(): Promise<ActivityEvent[]> {
       events.push({ id: `rq-${r.id}`, category: "recovery", level: "error", title: `${plat} upload failed`, detail: String(r.last_error ?? "failed"), at, platform: String(r.platform ?? "") })
   }
 
-  for (const l of (logsRes.data ?? []) as SystemLog[]) {
+  for (const l of ((logsRes.data ?? []) as SystemLog[]).filter((l) => !isIntakeLog(l))) {
     events.push({
       id: `sys-${l.id}`,
       category: "system",

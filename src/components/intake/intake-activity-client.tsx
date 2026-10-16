@@ -64,7 +64,8 @@ export function IntakeActivityClient({ steps, leads }: { steps: ActivityStep[]; 
           title: describeStep(s),
           category: stepCategory(s.step_key),
           level: levelOf(s.state),
-          leadName: lead?.name ?? "Unknown lead",
+          // A Make run belongs to no lead: name the scenario instead.
+          leadName: s.lead_id ? (lead?.name ?? "Unknown lead") : `Make: ${((s.detail ?? {}) as StepDetail).scenario ?? "scenario"}`,
           matterType: lead?.matter_type ?? null,
           by: ((s.detail ?? {}) as StepDetail).by,
         }
@@ -171,9 +172,13 @@ export function IntakeActivityClient({ steps, leads }: { steps: ActivityStep[]; 
                     </Badge>
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">
-                    <Link href={`/intake/${e.lead_id}`} className="font-medium text-foreground/90 hover:text-primary hover:underline">
-                      {e.leadName}
-                    </Link>
+                    {e.lead_id ? (
+                      <Link href={`/intake/${e.lead_id}`} className="font-medium text-foreground/90 hover:text-primary hover:underline">
+                        {e.leadName}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-foreground/90">{e.leadName}</span>
+                    )}
                     {e.matterType ? ` · ${e.matterType}` : ""}
                   </p>
                   {e.error && <p className="mt-0.5 text-xs text-destructive" title={e.error}>{readableError(e.error)}</p>}

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { createClient } from "@/lib/supabase/server"
+import { isIntakeLog } from "@/lib/log-workspace"
 
 /**
  * "Something new arrived here" markers for the sidebar.
@@ -74,7 +75,7 @@ export async function getNavSignals(): Promise<NavSignals> {
       // Errors and warnings only — an info line is not something to chase.
       supabase
         .from("system_logs")
-        .select("created_at, event_type")
+        .select("created_at, event_type, scenario_name")
         .in("event_type", ["error", "warning"])
         .order("created_at", { ascending: false })
         .limit(WINDOW),
@@ -109,7 +110,9 @@ export async function getNavSignals(): Promise<NavSignals> {
     wordpress_post_id?: string | null
     filed_to_clio?: boolean | null
     status?: string | null
+    event_type?: string | null
     state?: string | null
+    scenario_name?: string | null
   }
   const intakes = (intakesRes.data ?? []) as Row[]
   const episodes = (episodesRes.data ?? []) as Row[]
@@ -118,7 +121,10 @@ export async function getNavSignals(): Promise<NavSignals> {
   const gbp = gbpRes.error ? [] : toMs(gbpRes.data as Row[] | null)
   const summaries = (summariesRes.data ?? []) as Row[]
   const retries = (retryRes.data ?? []) as Row[]
-  const problems = toMs(logsRes.data as Row[] | null)
+  // Make failures of the intake scenarios count on Intake Activity instead.
+  const logs = (logsRes.data ?? []) as Row[]
+  const problems = toMs(logs.filter((l) => !isIntakeLog({ scenario_name: l.scenario_name ?? null })))
+  const intakeProblems = toMs(logs.filter((l) => l.event_type === "error" && isIntakeLog({ scenario_name: l.scenario_name ?? null })))
 
   // 1. Intake & Upload: naya manual upload (amber)
   const uploads = toMs(intakes.filter((i) => i.source_type === "manual_upload"))
@@ -166,6 +172,6 @@ export async function getNavSignals(): Promise<NavSignals> {
     "/intake": leads,
     "/intake/appointments": bookings,
     "/intake/recovery": stuck,
-    "/intake/activity": failures,
+    "/intake/activity": merge(failures, intakeProblems),
   }
 }
