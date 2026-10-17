@@ -18,7 +18,7 @@ import { consultLocation } from "@/lib/attorney-zoom"
 import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
-import { autoIntakeFrom, autoIntakeMode } from "@/lib/auto-intake"
+import { autoIntakeFrom, autoIntakeMode, clioAutoMatter } from "@/lib/auto-intake"
 import { conflictAutoOn, savedSearch } from "@/lib/conflict-search"
 import { advocateAutoOn } from "@/lib/advocate-auto"
 import { mailConfigured } from "@/lib/mail"
@@ -351,7 +351,9 @@ export default async function IntakeDetailPage({
       title: "Clio contact & matter",
       ok: Boolean(lead.clio_matter_id),
       summary: lead.clio_matter_id ? matterName ?? `Matter #${lead.clio_matter_id}` : "Not in Clio yet",
-      description: `The client's contact and the consult's matter in Clio Manage. A matter staff made in Clio is picked up here on its own.${autoLine}`,
+      description: clioAutoMatter()
+        ? `The client's contact and the consult's matter in Clio Manage. A matter staff made in Clio is picked up here on its own.${autoLine}`
+        : `The client's contact and the consult's matter. Push the matter from Clio Grow with "Convert to Clio Manage" so Grow and Manage stay linked — the dashboard picks it up here on its own. Use "Create in Clio" only for a lead with no Grow matter.`,
       body: (
         // Clio lookups can take a moment; the rest of the page doesn't wait.
         <Suspense fallback={<ClioStepSkeleton />}>

@@ -49,6 +49,18 @@ export function autoIntakeMode(): AutoIntakeMode {
 /** Midnight in Arizona on the day this shipped, unless AUTO_INTAKE_FROM says otherwise. */
 export const autoIntakeFrom = () => process.env.AUTO_INTAKE_FROM?.trim() || "2026-10-16T07:00:00Z"
 
+/**
+ * Whether the dashboard may open the Clio Manage matter itself. Off
+ * (CLIO_AUTO_MATTER=off) when the firm wants every matter pushed from Clio Grow
+ * with "Convert to Clio Manage", which keeps Grow and Manage linked. The
+ * dashboard then waits for that matter and picks it up (lib/clio-sync.ts)
+ * instead of opening a second, unlinked one in Manage. The rest of the
+ * automation (portal, Slack, tasks, sign-off) still runs once the matter is
+ * there, and the lead page's "Create in Clio" button stays as a manual override
+ * for a lead that has no Grow matter (e.g. a manual lead).
+ */
+export const clioAutoMatter = () => process.env.CLIO_AUTO_MATTER?.trim().toLowerCase() !== "off"
+
 export type AutoIntakeResult = { mode: "log" | "on"; done: string[]; waiting: string[]; failed: string[] }
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>
@@ -140,7 +152,10 @@ function advocateNoteDue(s: State) {
 function workLeft(s: State) {
   const advocate = Boolean(advocateOf(s.lead))
   const slack = (advocate && !s.slack && !backingOff(s, "slack_post")) || advocateNoteDue(s)
-  if (!s.lead.clio_matter_id) return !backingOff(s, "clio_create") || slack
+  // With auto matter creation off, a matterless lead waits for the Grow-pushed
+  // matter; only the Slack post (which needs no matter) is work the automation
+  // can still do.
+  if (!s.lead.clio_matter_id) return clioAutoMatter() ? !backingOff(s, "clio_create") || slack : slack
   return (
     slack ||
     (advocate && !s.portal && !backingOff(s, "clio_portal")) ||
@@ -219,7 +234,8 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   let contactId = lead.clio_client_contact_id
   let matterComing = false
   if (!matterId) {
-    if (backingOff(s, "clio_create")) waiting.push("Clio matter: tries again an hour after the last error")
+    if (!clioAutoMatter()) waiting.push("Clio matter: waiting for the matter pushed from Clio Grow (Convert to Clio Manage)")
+    else if (backingOff(s, "clio_create")) waiting.push("Clio matter: tries again an hour after the last error")
     else if (!(await clioStatus()).connected) waiting.push("Clio matter: Clio is not connected")
     else {
       try {
