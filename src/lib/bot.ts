@@ -10,6 +10,7 @@ import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
 import { emailLexi } from "@/lib/lexi-email"
 import { alertClioSignInExpired } from "@/lib/clio-signin-alert"
+import { emailTextForStaff } from "@/lib/team-alerts"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -278,6 +279,9 @@ export async function recordBotResult(r: { lead_id: string; kind: "lexi" | "text
   })
   // The bot's Clio sign-in ran out: every text waits until someone signs in again.
   if (r.kind === "text" && /saved sign-in has run out/i.test(note ?? "")) await alertClioSignInExpired().catch(() => false)
+  // A text the bot left for staff (a name or number that doesn't match): tell the team, once per lead.
+  if (r.kind === "text" && r.outcome === "needs_staff" && botModeFor("text") === "on")
+    await emailTextForStaff(admin, r.lead_id, note ?? "The bot left the confirmation text for staff.").catch(() => false)
   // Lexi follow-ups the bot couldn't pause (a similar name, a page that broke):
   // tell the team, once per lead, while the job is live.
   if (r.kind === "lexi" && botModeFor("lexi") === "on") {

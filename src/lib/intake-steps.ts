@@ -152,6 +152,12 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       return s.state === "awaiting_human" ? "The bot left Lexi's follow-ups for staff" : "The bot couldn't pause Lexi's follow-ups"
     case "bot_text":
       return s.state === "awaiting_human" ? "The bot left the confirmation text for staff" : "The bot couldn't send the confirmation text"
+    case "text_email":
+      return s.state === "failed" ? `The "send the text by hand" email to ${d.to ?? "the team"} didn't go out` : `Emailed ${d.to ?? "the team"}: send the confirmation text by hand`
+    case "matter_email":
+      return s.state === "failed" ? `The "Clio matter needed" email to ${d.to ?? "the team"} didn't go out` : `Emailed ${d.to ?? "the team"}: still waiting for the matter from Clio Grow`
+    case "advocate_email":
+      return s.state === "failed" ? `The "pick an advocate" email to ${d.to ?? "the team"} didn't go out` : `Emailed ${d.to ?? "the team"}: no advocate was free`
     case "lexi_email":
       return s.state === "failed"
         ? `The Lexi follow-ups email to ${d.to ?? "the team"} didn't go out`
@@ -225,6 +231,9 @@ export function leadStepFor(stepKey: string): string | null {
   const map: Record<string, string> = {
     lexi_followups: "lexi",
     lexi_email: "lexi",
+    text_email: "text",
+    matter_email: "clio",
+    advocate_email: "advocate",
     conflict_check: "conflict",
     conflict_reopened: "conflict",
     conflict_search: "conflict",
@@ -249,6 +258,6 @@ export type StepCategory = "booking" | "clio" | "decision" | "system"
 export function stepCategory(key: string): StepCategory {
   if (key.startsWith("acuity_")) return "booking"
   if (key.startsWith("clio_") || key.startsWith("grow_")) return "clio"
-  if (key.startsWith("slack_") || key === "lexi_followups" || key === "lexi_email" || key === "conflict_check" || key === "conflict_reopened" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
+  if (key.startsWith("slack_") || key === "lexi_followups" || key === "lexi_email" || key === "text_email" || key === "matter_email" || key === "advocate_email" || key === "conflict_check" || key === "conflict_reopened" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
   return "system"
 }

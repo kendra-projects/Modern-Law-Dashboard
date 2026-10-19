@@ -3,6 +3,7 @@ import "server-only"
 import { clioFetch, clioStatus } from "@/lib/clio"
 import { ADVOCATES, ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
+import { emailNoAdvocate } from "@/lib/team-alerts"
 import { slackConfigured, slackStatuses } from "@/lib/slack"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead } from "@/types/database"
@@ -178,6 +179,7 @@ export async function autoAssignAdvocate(admin: Admin, lead: Lead): Promise<stri
   const pick = await pickAdvocate(admin)
   if (!pick.advocate) {
     await logStep(admin, { lead_id: lead.id, step_key: "advocate_auto", state: "pending", detail: { by: "Automatic", why: pick.why } })
+    await emailNoAdvocate(admin, lead.id, pick.why ?? null).catch(() => false)
     return null
   }
   // Only while nobody has named an advocate in the meantime.
