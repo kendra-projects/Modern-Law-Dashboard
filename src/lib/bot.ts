@@ -206,24 +206,33 @@ export async function botTasks(): Promise<{ mode: BotMode; tasks: BotTask[] }> {
   const mode: BotMode = live.includes("on") ? "on" : live.length ? "dry" : "off"
   if (mode === "off" || !admin) return { mode, tasks: [] }
   const leads = await openLeads(admin)
-  await dropPassedTexts(admin, leads)
+  await dropMootTexts(admin, leads)
   return { mode, tasks: await tasksFor(admin, leads) }
 }
 
 /**
  * A confirmation text the bot couldn't send is moot once the consult has
- * passed: its failure is set aside (skipped, kept in the log) so Intake
- * Recovery doesn't ask anyone to send it.
+ * passed or the booking was canceled: its failure is set aside (skipped, kept
+ * in the log) so Intake Recovery doesn't ask anyone to send it.
  */
-async function dropPassedTexts(admin: Admin, leads: IntakeLead[]) {
+async function dropMootTexts(admin: Admin, leads: IntakeLead[]) {
+  const skip = (ids: string[], note: string) =>
+    admin
+      .from("intake_steps")
+      .update({ state: "skipped", detail: { by: BOT_BY, note } })
+      .in("lead_id", ids)
+      .eq("step_key", "bot_text")
+      .eq("state", "failed")
+
   const passed = leads.filter((l) => l.consult_datetime && new Date(l.consult_datetime).getTime() < Date.now()).map((l) => l.id)
-  if (!passed.length) return
-  await admin
-    .from("intake_steps")
-    .update({ state: "skipped", detail: { by: BOT_BY, note: "The consult has passed, so the text is no longer needed." } })
-    .in("lead_id", passed)
-    .eq("step_key", "bot_text")
-    .eq("state", "failed")
+  if (passed.length) await skip(passed, "The consult has passed, so the text is no longer needed.")
+
+  // Canceled leads aren't among the open ones: find them from their failed texts.
+  const { data: failed } = await admin.from("intake_steps").select("lead_id").eq("step_key", "bot_text").eq("state", "failed")
+  const failedIds = Array.from(new Set((failed ?? []).map((s) => s.lead_id)))
+  if (!failedIds.length) return
+  const { data: canceled } = await admin.from("intake_leads").select("id").in("id", failedIds).eq("status", "canceled")
+  if (canceled?.length) await skip(canceled.map((l) => l.id), "The booking was canceled, so the text is no longer needed.")
 }
 
 export type BotOutcome = "paused" | "none" | "sent" | "dry" | "needs_staff" | "failed"
