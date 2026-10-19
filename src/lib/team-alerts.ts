@@ -19,6 +19,9 @@ import type { IntakeLead } from "@/types/database"
 // email.
 
 export const teamEmailTo = () => process.env.TEAM_EMAIL_TO?.trim() || conflictEmailTo()
+// The "send the text by hand" email goes to the developer for now, to see how
+// many there are (19 Oct 2026); set TEXT_EMAIL_TO to the team inbox to hand it over.
+const textEmailTo = () => process.env.TEXT_EMAIL_TO?.trim() || botAlertTo()
 const TZ = "America/Phoenix"
 const CLIO_APP = "https://app.clio.com/nc/#"
 
@@ -145,14 +148,20 @@ ${
 const FOOTER = "Automated message from the Modern Law Operations Dashboard, sent once for this booking. Sign in with the intake team login if prompted."
 
 /** Email the team about one lead, once per kind (logged as step `stepKey`). Returns true when it sent. */
-async function emailLeadOnce(admin: Admin, leadId: string, stepKey: string, build: (lead: Lead) => Mail, detail: Record<string, unknown> = {}) {
+async function emailLeadOnce(
+  admin: Admin,
+  leadId: string,
+  stepKey: string,
+  build: (lead: Lead) => Mail,
+  detail: Record<string, unknown> = {},
+  to = teamEmailTo()
+) {
   if (!mailConfigured()) return false
   const [{ data: lead }, { data: row }] = await Promise.all([
     admin.from("intake_leads").select(LEAD_COLS).eq("id", leadId).maybeSingle(),
     admin.from("intake_steps").select("state").eq("lead_id", leadId).eq("step_key", stepKey).maybeSingle(),
   ])
   if (!lead || row?.state === "done") return false
-  const to = teamEmailTo()
   try {
     await sendMail({ to, ...build(lead as Lead) })
     await logStep(admin, { lead_id: leadId, step_key: stepKey, state: "done", detail: { by: "Automatic", to, ...detail } })
@@ -195,7 +204,7 @@ export function emailTextForStaff(admin: Admin, leadId: string, note: string) {
       ],
       footer: FOOTER,
     })
-  }, { reason: note.slice(0, 200) })
+  }, { reason: note.slice(0, 200) }, textEmailTo())
 }
 
 /** Nobody was free to take the consult, so it has no advocate yet. */
