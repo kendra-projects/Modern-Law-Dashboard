@@ -570,6 +570,30 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_alerts: {
+        Row: {
+          id: string
+          kind: string
+          session_sha: string
+          sent_to: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          session_sha: string
+          sent_to: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          session_sha?: string
+          sent_to?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       integration_tokens: {
         Row: {
           provider: string

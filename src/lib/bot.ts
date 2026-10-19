@@ -9,6 +9,7 @@ import { isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
 import { emailLexi } from "@/lib/lexi-email"
+import { alertClioSignInExpired } from "@/lib/clio-signin-alert"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -275,6 +276,8 @@ export async function recordBotResult(r: { lead_id: string; kind: "lexi" | "text
     detail: { by: BOT_BY },
     error: note ?? (r.outcome === "needs_staff" ? "The bot left this one for staff." : "The bot couldn't finish this step."),
   })
+  // The bot's Clio sign-in ran out: every text waits until someone signs in again.
+  if (r.kind === "text" && /saved sign-in has run out/i.test(note ?? "")) await alertClioSignInExpired().catch(() => false)
   // Lexi follow-ups the bot couldn't pause (a similar name, a page that broke):
   // tell the team, once per lead, while the job is live.
   if (r.kind === "lexi" && botModeFor("lexi") === "on") {
