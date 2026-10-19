@@ -132,7 +132,8 @@ export async function reopenConflict(leadId: string): Promise<ActionResult> {
     .eq("lead_id", leadId)
     .eq("step_key", "conflict_check")
     .eq("state", "failed")
-  await supabase.from("intake_steps").insert({
+  // One row per step: a second reopen updates it to the latest person and time.
+  await logStep(supabase, {
     lead_id: leadId,
     step_key: "conflict_reopened",
     state: "done",
