@@ -20,7 +20,6 @@ import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { emailMatterWait } from "@/lib/team-alerts"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
 // The intake steps that have an API, done on their own as soon as a booking is
@@ -483,35 +482,6 @@ export async function runAutoIntakeForOpenLeads(limit = 2) {
     if (r && (r.done.length || r.failed.length)) ran++
   }
   return { checked, ran }
-}
-
-/**
- * With CLIO_AUTO_MATTER off the dashboard waits for the matter pushed from Clio
- * Grow. A booking still without one CLIO_MATTER_WAIT_HOURS after it came in
- * (default 2) is emailed to the team once (lib/team-alerts.ts). Runs with the
- * bot's hourly call.
- */
-export async function emailMatterWaits() {
-  const admin = createAdminClient()
-  if (clioAutoMatter() || autoIntakeMode() !== "on" || !admin) return 0
-  const waitMs = Number(process.env.CLIO_MATTER_WAIT_HOURS || 2) * 3600_000
-  const { data } = await admin
-    .from("intake_leads")
-    .select("id, created_at")
-    .eq("source", "acuity")
-    .eq("conflict_status", "clear")
-    .is("clio_matter_id", null)
-    .not("status", "in", "(canceled,stopped,failed,done)")
-    .gte("created_at", autoIntakeFrom())
-    .lte("created_at", new Date(Date.now() - waitMs).toISOString())
-    .gt("consult_datetime", new Date().toISOString())
-    .limit(20)
-  let sent = 0
-  for (const l of data ?? []) {
-    const hours = Math.floor((Date.now() - Date.parse(l.created_at)) / 3600_000)
-    if (await emailMatterWait(admin, l.id, hours).catch(() => false)) sent++
-  }
-  return sent
 }
 
 /** A sentence for the lead page's toast after a gate opened the way. */

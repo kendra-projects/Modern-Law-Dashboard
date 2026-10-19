@@ -9,9 +9,10 @@ import type { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead } from "@/types/database"
 
 // Emails for intake work the automation can't finish without a person: a
-// confirmation text the bot left for staff, a booking still waiting for its
-// Clio Grow matter, a consult no advocate is free for, and Clio disconnected
-// from the dashboard. To the team inbox (TEAM_EMAIL_TO, else CONFLICT_EMAIL_TO,
+// confirmation text the bot left for staff, a consult no advocate is free
+// for, and Clio disconnected from the dashboard. (No email for a booking still
+// waiting for its Clio Grow matter: the firm converts it only once the lead
+// becomes a client, which can take days.) To the team inbox (TEAM_EMAIL_TO, else CONFLICT_EMAIL_TO,
 // else sales@); a lost Clio connection also goes to the developer. A lead's
 // email goes once per lead and kind (logged as its own step); the connection
 // email at most once a day while it stays broken. Same theme as the conflict
@@ -169,7 +170,6 @@ async function emailLeadOnce(admin: Admin, leadId: string, stepKey: string, buil
 }
 
 export const TEXT_EMAIL = "text_email"
-export const MATTER_EMAIL = "matter_email"
 export const ADVOCATE_EMAIL = "advocate_email"
 
 /** The bot left the confirmation text for staff (the number or name in Clio doesn't match the booking, say). */
@@ -196,28 +196,6 @@ export function emailTextForStaff(admin: Admin, leadId: string, note: string) {
       footer: FOOTER,
     })
   }, { reason: note.slice(0, 200) })
-}
-
-/** A booking still has no Clio Manage matter: the dashboard waits for the one pushed from Clio Grow. */
-export function emailMatterWait(admin: Admin, leadId: string, hours: number) {
-  return emailLeadOnce(admin, leadId, MATTER_EMAIL, (l) => {
-    const when = whenOf(l.consult_datetime)
-    return teamEmail({
-      subject: `Clio matter needed: ${clientOf(l)}${when ? ` (consult ${when})` : ""}`,
-      badge: `No matter after ${hours} hours`,
-      tone: "warning",
-      title: "This booking is waiting for its Clio matter",
-      summary: `The booking came in ${hours} hours ago and there is still no Clio Manage matter. The dashboard waits for the one pushed from Clio Grow, so the portal invite, follow-up tasks and confirmation text are on hold.`,
-      facts: leadFacts(l),
-      buttons: [{ href: `${SITE}/intake/${l.id}?step=clio`, text: "Open the lead" }],
-      steps: [
-        "In Clio Grow, open the client's matter and click <b>Convert to Clio Manage</b>.",
-        "The dashboard picks the matter up within the hour and sends the portal invite, the follow-up tasks and the confirmation text on its own.",
-        "No Grow matter for this client (booked by hand, say)? Open the lead and click <b>Create in Clio</b>.",
-      ],
-      footer: FOOTER,
-    })
-  }, { hours })
 }
 
 /** Nobody was free to take the consult, so it has no advocate yet. */
