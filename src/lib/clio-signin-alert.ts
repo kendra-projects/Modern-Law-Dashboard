@@ -14,6 +14,10 @@ import { createAdminClient } from "@/lib/supabase/admin"
 
 const BOT_REPO = () => process.env.BOT_REPO?.trim() || "abdulqayyum3116-art/modern-law-bot"
 export const botAlertTo = () => process.env.BOT_ALERT_EMAIL?.trim() || "abdulqayyum3116@gmail.com"
+// The Codespace itself (github.dev opens it, starting it if stopped). GitHub
+// deletes a Codespace left unused for about 30 days, so the email keeps the
+// github.com/codespaces route as the fallback.
+const codespaceUrl = () => process.env.CLIO_CODESPACE_URL?.trim() || "https://fluffy-dollop-r7gq77qxgxqwh5jgj.github.dev/"
 const remindAfterDays = () => Number(process.env.CLIO_SIGNIN_REMIND_DAYS || 25)
 const SESSION_DAYS = 30
 const DAY = 24 * 60 * 60 * 1000
@@ -45,6 +49,7 @@ export function signInEmail(kind: Kind, signedIn: Date) {
   const expired = kind === "expired"
   const repo = `https://github.com/${BOT_REPO()}`
   const codespaces = "https://github.com/codespaces"
+  const codespace = codespaceUrl()
 
   const subject = expired
     ? "Action needed: the intake bot's Clio sign-in ran out"
@@ -53,11 +58,11 @@ export function signInEmail(kind: Kind, signedIn: Date) {
     ? `The bot found its Clio sign-in has ended (last signed in ${day(signedIn)}). Confirmation texts are on hold until someone signs in again; the waiting ones go out within the hour after.`
     : `The bot last signed in to Clio on ${day(signedIn)}, ${days} days ago. Clio ends the sign-in after about ${SESSION_DAYS} days, around ${day(endsBy)}, and then confirmation texts stop. Sign in again before then.`
   const steps = [
-    `Open <a href="${codespaces}" style="color:${C.primary}">github.com/codespaces</a> and open the modern-law-bot Codespace. If there is none: the <a href="${repo}" style="color:${C.primary}">bot repo</a> → Code → Codespaces → Create codespace on main.`,
+    `Click <b>Open the Codespace</b> above (it starts if it was stopped). If the link doesn't open it: <a href="${codespaces}" style="color:${C.primary}">github.com/codespaces</a> → the modern-law-bot Codespace, or if there is none, the <a href="${repo}" style="color:${C.primary}">bot repo</a> → Code → Codespaces → Create codespace on main.`,
     "When it has loaded, paste this in the Terminal and press Enter:",
     "Ports tab → port <b>6080</b> → the globe icon → <b>Connect</b>, password <b>vscode</b>. Clio's sign-in page is open on that desktop.",
     "Sign in with Kendra's Clio login and the code from her phone (or a backup code). On the code page tick <b>Don't ask again for 30 days</b>.",
-    "When the Terminal says <b>Done</b>, stop the Codespace (github.com/codespaces → … → Stop). The bot uses the new sign-in from its next run.",
+    "When the Terminal says <b>Done</b>, stop the Codespace (github.com/codespaces → … → Stop; don't delete it). The bot uses the new sign-in from its next run.",
   ]
   const command = "npm run clio-login"
 
@@ -95,7 +100,7 @@ export function signInEmail(kind: Kind, signedIn: Date) {
   <p style="margin:0;font:15px/1.6 ${SANS};color:${C.muted}">${esc(summary)}</p>
 </td></tr>
 <tr><td style="padding:22px 28px 8px">
-  <table role="presentation" cellpadding="0" cellspacing="0"><tr>${button(codespaces, "Open Codespaces &rarr;", true)}<td style="width:10px"></td>${button(`${repo}#signing-in-to-clio-codespace`, "Steps in the README", false)}</tr></table>
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr>${button(codespace, "Open the Codespace &rarr;", true)}<td style="width:10px"></td>${button(`${repo}#signing-in-to-clio-codespace`, "Steps in the README", false)}</tr></table>
 </td></tr>
 <tr><td style="padding:18px 28px 26px">${label("How to sign in (about 5 minutes)")}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${steps.map(step).join("")}</table></td></tr>
 <tr><td style="padding:14px 28px;background:${C.soft};border-top:1px solid ${C.border};font:12px/1.5 ${SANS};color:${C.muted}">
@@ -110,7 +115,8 @@ export function signInEmail(kind: Kind, signedIn: Date) {
     subject,
     summary,
     "",
-    `Codespaces: ${codespaces}`,
+    `Open the Codespace: ${codespace}`,
+    `All Codespaces: ${codespaces}`,
     `Bot repo: ${repo}`,
     "",
     "How to sign in:",
