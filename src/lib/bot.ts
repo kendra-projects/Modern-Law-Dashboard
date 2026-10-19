@@ -8,6 +8,7 @@ import { autoSignoff } from "@/lib/auto-intake"
 import { isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
+import { emailLexi } from "@/lib/lexi-email"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -274,6 +275,12 @@ export async function recordBotResult(r: { lead_id: string; kind: "lexi" | "text
     detail: { by: BOT_BY },
     error: note ?? (r.outcome === "needs_staff" ? "The bot left this one for staff." : "The bot couldn't finish this step."),
   })
+  // Lexi follow-ups the bot couldn't pause (a similar name, a page that broke):
+  // tell the team, once per lead, while the job is live.
+  if (r.kind === "lexi" && botModeFor("lexi") === "on") {
+    const why = r.outcome === "needs_staff" ? "needs_staff" : "failed"
+    await emailLexi(admin, r.lead_id, why, note ?? "The bot couldn't pause the follow-ups.").catch(() => false)
+  }
   return { approved: false }
 }
 

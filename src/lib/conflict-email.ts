@@ -19,7 +19,7 @@ export const conflictEmailTo = () => process.env.CONFLICT_EMAIL_TO?.trim() || "s
 const conflictEmailFrom = () => process.env.CONFLICT_EMAIL_FROM?.trim() || "2026-10-15T07:00:00Z"
 const RETRY_AFTER = 60 * 60 * 1000
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://modern-law-dashboard.vercel.app"
+export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://modern-law-dashboard.vercel.app"
 const TZ = "America/Phoenix"
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>
@@ -37,7 +37,7 @@ export type ConflictEmailLead = Pick<
   | "matter_type"
 >
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 
 /** A search a person has to finish: it went through, but found a match or couldn't search the opposing party. */
 export function needsPerson(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags">) {
@@ -45,7 +45,8 @@ export function needsPerson(x: Pick<ConflictSearch, "errors" | "searched" | "opp
 }
 
 // The dashboard's Luxury Evening theme (globals.css), as hex for email clients.
-const C = {
+// Shared with the other team emails (lib/lexi-email.ts).
+export const C = {
   page: "#161413",
   card: "#211e1c",
   ink: "#ede6de",
@@ -62,8 +63,8 @@ const C = {
   warning: "#fba423",
   warningSoft: "#3a2c17",
 }
-const SANS = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
-const SERIF = "'Playfair Display',Georgia,'Times New Roman',serif"
+export const SANS = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+export const SERIF = "'Playfair Display',Georgia,'Times New Roman',serif"
 
 export function conflictEmail(lead: ConflictEmailLead, search: ConflictSearch) {
   const client = [lead.client_first, lead.client_last].filter(Boolean).join(" ") || "New client"
