@@ -9,12 +9,13 @@ import type { IntakeLead } from "@/types/database"
 // When the conflict search can't clear a booking on its own (a match the firm
 // should look at, or no opposing party it could search), the person who runs
 // conflict checks gets an email: what was found, a button to the lead's
-// conflict step, and what to do there. Kendra by default (CONFLICT_EMAIL_TO).
+// conflict step, and what to do there. The team inbox, sales@, by default
+// (CONFLICT_EMAIL_TO), so anyone on the team can pick it up.
 // Once per booking, for bookings from CONFLICT_EMAIL_FROM while the consult is
 // still ahead; a send that failed is tried again after an hour.
 
 export const CONFLICT_EMAIL = "conflict_email"
-export const conflictEmailTo = () => process.env.CONFLICT_EMAIL_TO?.trim() || "kendra@mymodernlaw.com"
+export const conflictEmailTo = () => process.env.CONFLICT_EMAIL_TO?.trim() || "sales@mymodernlaw.com"
 const conflictEmailFrom = () => process.env.CONFLICT_EMAIL_FROM?.trim() || "2026-10-15T07:00:00Z"
 const RETRY_AFTER = 60 * 60 * 1000
 
@@ -38,7 +39,7 @@ export type ConflictEmailLead = Pick<
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 
-/** A search Kendra has to finish: it went through, but found a match or couldn't search the opposing party. */
+/** A search a person has to finish: it went through, but found a match or couldn't search the opposing party. */
 export function needsPerson(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags">) {
   return !x.errors.length && x.searched.includes("Clio Manage") && x.searched.includes("Clio Grow") && (x.flags > 0 || !x.opposing)
 }
@@ -186,7 +187,7 @@ ${
   return { subject, html, text }
 }
 
-/** Email the conflict check to Kendra, once per booking. Returns true when it sent. */
+/** Email the conflict check to the team, once per booking. Returns true when it sent. */
 export async function emailConflict(admin: Admin, lead: ConflictEmailLead, search: ConflictSearch): Promise<boolean> {
   if (!mailConfigured() || !needsPerson(search)) return false
   if (Date.parse(lead.created_at) < Date.parse(conflictEmailFrom())) return false

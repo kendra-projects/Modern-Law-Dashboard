@@ -182,8 +182,8 @@ export default async function IntakeDetailPage({
   const emailStep = allSteps.find((x) => x.step_key === CONFLICT_EMAIL)
   const conflictEmailed = emailStep
     ? emailStep.state === "done"
-      ? `Emailed to ${(emailStep.detail as { to?: string } | null)?.to ?? "Kendra"} on ${when(emailStep.created_at)}.`
-      : `The email to ${(emailStep.detail as { to?: string } | null)?.to ?? "Kendra"} didn't go out: ${emailStep.error ?? "unknown error"}`
+      ? `Emailed to ${(emailStep.detail as { to?: string } | null)?.to ?? "the team"} on ${when(emailStep.created_at)}.`
+      : `The email to ${(emailStep.detail as { to?: string } | null)?.to ?? "the team"} didn't go out: ${emailStep.error ?? "unknown error"}`
     : null
 
   // Who picked the advocate, and why when it was automatic (lib/advocate-auto.ts).

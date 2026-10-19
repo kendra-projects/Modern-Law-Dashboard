@@ -22,7 +22,7 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // check on its own: both names searched in Clio Manage and Grow without an
 // error, and nothing flagged. Everything else (a match, an opposing party
 // that couldn't be searched, an error) stays with staff, who decide on the
-// lead page; a match or a missing opposing party is emailed to Kendra with a
+// lead page; a match or a missing opposing party is emailed to the team with a
 // link to it (lib/conflict-email.ts). A match is never stopped automatically:
 // most are only the same name, and a stopped lead gets nothing more.
 //
@@ -298,7 +298,7 @@ export function cannotAutoClear(x: Pick<ConflictSearch, "errors" | "searched" | 
  * With CONFLICT_AUTO=on, clear a pending check whose search came back clean,
  * then let the automatic intake and the bot carry on. Returns true when it
  * cleared. Same record as staff clicking No conflict, signed "Automatic".
- * A search that needs a person instead goes to Kendra by email.
+ * A search that needs a person instead goes to the team by email.
  */
 async function settleConflict(admin: Admin, lead: Lead, search: ConflictSearch): Promise<boolean> {
   if (!conflictAutoOn() || lead.source !== "acuity" || !pending(lead)) return false

@@ -313,7 +313,7 @@ export function ConflictStep({
   opposingParty: string | null
   /** What the dashboard's search of Clio found; null until it has run. */
   search: ConflictSearchView | null
-  /** "Emailed to … on …" once the check went to Kendra. */
+  /** "Emailed to … on …" once the check was emailed to the team. */
   emailed?: string | null
 }) {
   const { pending, run, note } = useAction()
