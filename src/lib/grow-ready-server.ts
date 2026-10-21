@@ -12,7 +12,7 @@ type Supabase = Awaited<ReturnType<typeof createClient>>
  */
 export async function growMatterLeads(
   supabase: Supabase,
-  leads: Pick<IntakeLead, "id" | "status" | "conflict_status" | "clio_matter_id">[]
+  leads: Pick<IntakeLead, "id" | "status" | "conflict_status" | "clio_matter_id" | "consult_datetime">[]
 ): Promise<string[]> {
   const ids = leads.filter((l) => growNext(l, false)).map((l) => l.id)
   if (!ids.length) return []
