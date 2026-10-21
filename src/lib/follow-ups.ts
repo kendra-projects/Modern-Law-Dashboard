@@ -1,13 +1,15 @@
 // The three follow-up tasks every consult gets (checklist step 11), with due
 // dates counted in business days from the consult date. Weekends are skipped;
-// the checklist does not skip holidays, so neither does this.
+// the checklist does not skip holidays, so neither does this. Kendra's rule
+// (20 Oct 2026): the first follow-up is on the consult day, the second the
+// next business day, and the review request with the last follow-up.
 
 const TZ = "America/Phoenix"
 
 export const FOLLOW_UPS = [
-  { name: "Post Consultation follow up 1", businessDays: 1 },
-  { name: "Post Consultation follow up 2", businessDays: 2 },
-  { name: "Review Request", businessDays: 2 },
+  { name: "Post Consultation follow up 1", businessDays: 0 },
+  { name: "Post Consultation follow up 2", businessDays: 1 },
+  { name: "Review Request", businessDays: 1 },
 ] as const
 
 /** The consult's calendar date in Arizona, as YYYY-MM-DD. */

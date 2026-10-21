@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import type { TablesInsert } from "@/types/database"
 import { getRole, canSeeIntake } from "@/lib/role"
-import { planClioCreate, executeClioPlan, sendClioPortalInvite, createFollowUpTasks } from "@/lib/clio-intake"
+import { createFollowUpTasks, lookupLeadInClio, sendClioPortalInvite } from "@/lib/clio-intake"
 import { consultDay, followUpPlan } from "@/lib/follow-ups"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
@@ -314,8 +314,8 @@ export async function sendPortalInvite(leadId: string): Promise<ActionResult> {
 }
 
 /**
- * Checklist step 11: the three follow-up tasks on the Clio matter, due one and
- * two business days after the consult, assigned to the advocate. Writes to
+ * Checklist step 11: the three follow-up tasks on the Clio matter, due on the
+ * consult day and the next business day, assigned to the advocate. Writes to
  * the live Clio, so it only runs from the button, once per lead.
  */
 export async function createFollowUps(leadId: string): Promise<ActionResult> {
@@ -551,12 +551,15 @@ export async function searchConflictsAgain(leadId: string): Promise<ActionResult
   }
 }
 
-// ── Create in Clio ──────────────────────────────────────────────────────────
-// Writes to the firm's live Clio: contact (reused if it already exists), matter
-// (reused if staff made one for this client in the last 3 weeks), and the
-// opposing party as a related contact. Idempotent per lead via clio_matter_id.
+// ── Link a Clio matter ──────────────────────────────────────────────────────
+// The consult's matter comes from Clio Grow ("Convert to Clio Manage"), and the
+// Clio sync links it on its own when exactly one of the client's matters fits.
+// When several do, staff pick it here. Only our own tables change: nothing is
+// written to Clio.
 
-export async function createInClio(leadId: string): Promise<ActionResult> {
+const EARLY_STATUSES = ["received", "enriched", "conflict_pending", "conflict_clear"]
+
+export async function linkClioMatter(leadId: string, matterId: string): Promise<ActionResult> {
   const { supabase, user } = await requireUser()
   if (!user) return { ok: false, message: "Not authenticated." }
   if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
@@ -564,51 +567,34 @@ export async function createInClio(leadId: string): Promise<ActionResult> {
   const { data: lead } = await supabase.from("intake_leads").select("*").eq("id", leadId).maybeSingle()
   if (!lead) return { ok: false, message: "Lead not found." }
   if (lead.clio_matter_id) return { ok: true, message: "Already linked to a Clio matter." }
-  if (lead.status === "canceled" || lead.status === "stopped")
-    return { ok: false, message: `This lead is ${lead.status}; nothing was created.` }
+  if (lead.status === "canceled" || lead.status === "stopped") return { ok: false, message: `This lead is ${lead.status}.` }
 
-  const step = (step_key: string, state: "done" | "failed", detail: Record<string, unknown>, error?: string) =>
-    logStep(supabase, { lead_id: leadId, step_key, state, detail: { ...detail, by: user.email ?? user.id }, error: error ?? null })
+  // Only one of this client's own matters, as the lead page lists them.
+  const r = await lookupLeadInClio(lead)
+  if (r.state !== "ok") return { ok: false, message: r.state === "error" ? r.message : "Clio isn't connected." }
+  const matter = r.matters.find((m) => String(m.id) === matterId)
+  if (!matter || !r.contact) return { ok: false, message: "That matter isn't one of this client's in Clio." }
 
-  let plan
-  try {
-    plan = await planClioCreate(lead)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Couldn't prepare the Clio entry."
-    await step("clio_create", "failed", { phase: "plan" }, msg)
-    revalidatePath(`/intake/${leadId}`)
-    return { ok: false, message: msg }
-  }
+  await supabase
+    .from("intake_leads")
+    .update({
+      clio_matter_id: String(matter.id),
+      clio_client_contact_id: lead.clio_client_contact_id ?? String(r.contact.id),
+      ...(EARLY_STATUSES.includes(lead.status) ? { status: "matter_created" as const } : {}),
+    })
+    .eq("id", leadId)
+  await logStep(supabase, {
+    lead_id: leadId,
+    step_key: "clio_matter",
+    state: "done",
+    detail: { matter_id: matter.id, display: matter.display_number, action: "linked", by: user.email ?? user.id },
+  })
+  await clearFailure(supabase, leadId, "clio_create")
 
-  try {
-    const r = await executeClioPlan(plan)
-    await supabase
-      .from("intake_leads")
-      .update({
-        clio_client_contact_id: String(r.contactId),
-        clio_matter_id: String(r.matterId),
-        clio_op_contact_id: r.opContactId ? String(r.opContactId) : null,
-        status: "matter_created",
-      })
-      .eq("id", leadId)
-
-    await step("clio_contact", "done", { contact_id: r.contactId, action: "reuseId" in plan.contact ? "reused" : "created" })
-    await step("clio_matter", "done", { matter_id: r.matterId, display: r.display, action: r.reused ? "reused" : "created", notes: plan.notes })
-    if (r.opError) await step("clio_opposing_party", "failed", { matter_id: r.matterId }, r.opError)
-    else if (r.opContactId) await step("clio_opposing_party", "done", { contact_id: r.opContactId })
-    await clearFailure(supabase, leadId, "clio_create")
-
-    revalidatePath(`/intake/${leadId}`)
-    revalidatePath("/intake")
-    const base = r.reused ? `Linked to existing Clio matter ${r.display}.` : `Created Clio matter ${r.display}.`
-    const extra = [r.opError ? `Opposing party not linked: ${r.opError}` : "", ...plan.notes].filter(Boolean).join(" ")
-    return { ok: !r.opError, message: extra ? `${base} ${extra}` : base }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Clio rejected the entry."
-    await step("clio_create", "failed", { phase: "write" }, msg)
-    revalidatePath(`/intake/${leadId}`)
-    return { ok: false, message: msg }
-  }
+  const auto = await runAutoIntake(leadId).catch(() => null)
+  revalidatePath(`/intake/${leadId}`)
+  revalidatePath("/intake")
+  return { ok: true, message: `Linked to Clio matter ${matter.display_number}.${autoIntakeMessage(auto)}` }
 }
 
 // ── Manual lead entry ────────────────────────────────────────────────────────

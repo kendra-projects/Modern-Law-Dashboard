@@ -41,6 +41,7 @@ import { KpiCard } from "@/components/overview/kpi-card"
 import { useChartColors } from "@/components/charts/use-chart-colors"
 import { ChartTooltip } from "@/components/charts/chart-tooltip"
 import { cn } from "@/lib/utils"
+import { GROW_NEXT_LABEL, growNext } from "@/lib/grow-ready"
 import { IntakeOverviewSkeleton } from "@/components/intake/intake-skeletons"
 import { FilterTransition, FilterLink, PendingArea } from "@/components/intake/filter-transition"
 
@@ -102,14 +103,17 @@ function ListTitle({ children, count }: { children: React.ReactNode; count: numb
   )
 }
 
-function needsAttention(l: IntakeLead): Attention | null {
+function needsAttention(l: IntakeLead, hasGrowMatter: boolean): Attention | null {
   if (CLOSED.includes(l.status)) return null
   if (l.conflict_status === "pending") return { lead: l, reason: "Conflict check", tone: "bg-accent/15 text-accent" }
-  if (!l.clio_matter_id) return { lead: l, reason: "Create in Clio", tone: "bg-primary/15 text-primary" }
+  // The matter is made in Clio Grow and converted to Manage (lib/grow-ready.ts).
+  const next = growNext(l, hasGrowMatter)
+  if (next) return { lead: l, reason: GROW_NEXT_LABEL[next], tone: "bg-primary/15 text-primary" }
+  if (!l.clio_matter_id) return null
   return { lead: l, reason: "Sign-off", tone: "bg-success/15 text-success" }
 }
 
-export function IntakeOverview({ leads, appts }: { leads: IntakeLead[]; appts: OverviewAppt[] }) {
+export function IntakeOverview({ leads, appts, growMatter }: { leads: IntakeLead[]; appts: OverviewAppt[]; growMatter: string[] }) {
   const c = useChartColors()
   // Theme colours, so the charts follow Light / Dark / Evening like the rest.
   const tone = {
@@ -170,7 +174,8 @@ export function IntakeOverview({ leads, appts }: { leads: IntakeLead[]; appts: O
       { name: "Approved", value: live.filter((l) => l.status === "done").length },
     ]
 
-    const attention = leads.map(needsAttention).filter((x): x is Attention => Boolean(x))
+    const hasGrow = new Set(growMatter)
+    const attention = leads.map((l) => needsAttention(l, hasGrow.has(l.id))).filter((x): x is Attention => Boolean(x))
     const todays = active.filter((a) => a.is_consult && dayKey(a.datetime!) === today)
     // Collapsed, the list shows what's still ahead today; once the day is over,
     // the last few.
@@ -195,7 +200,7 @@ export function IntakeOverview({ leads, appts }: { leads: IntakeLead[]; appts: O
       leadById,
       recent: leads.slice(0, RECENT_MAX),
     }
-  }, [leads, appts, tone.new, tone.clio, tone.done, tone.stopped, tone.canceled])
+  }, [leads, appts, growMatter, tone.new, tone.clio, tone.done, tone.stopped, tone.canceled])
 
   const SERIES = [
     { key: "Consults", id: "consults", color: c.primary },

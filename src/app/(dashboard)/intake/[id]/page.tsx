@@ -19,6 +19,7 @@ import { consultPost } from "@/lib/consult-post"
 import { growConfigured, growMatterUrl, growNotesApply, growStatus } from "@/lib/grow"
 import { growNote, growState, nameDiffers, referredBy } from "@/lib/grow-note"
 import { autoIntakeFrom, autoIntakeMode, clioAutoMatter } from "@/lib/auto-intake"
+import { GROW_NEXT_LABEL, growNext } from "@/lib/grow-ready"
 import { conflictAutoOn, savedSearch } from "@/lib/conflict-search"
 import { advocateAutoOn } from "@/lib/advocate-auto"
 import { mailConfigured } from "@/lib/mail"
@@ -146,6 +147,8 @@ export default async function IntakeDetailPage({
     lastDone("grow_note_rescheduled") ? "A reschedule note was added too." : null,
     grow.canceled ? "A cancellation note was added too." : null,
   ].filter((x): x is string => Boolean(x))
+  // Once the conflict is clear, the matter waits on the advocate in Grow (lib/grow-ready.ts).
+  const growTodo = growNext(lead, Boolean(grow.noted))
   // Step numbers in the hints move down one when the Grow step is shown.
   const n = (step: number) => step + (showGrow ? 1 : 0)
 
@@ -350,14 +353,14 @@ export default async function IntakeDetailPage({
       key: "clio",
       title: "Clio contact & matter",
       ok: Boolean(lead.clio_matter_id),
-      summary: lead.clio_matter_id ? matterName ?? `Matter #${lead.clio_matter_id}` : "Not in Clio yet",
+      summary: lead.clio_matter_id ? matterName ?? `Matter #${lead.clio_matter_id}` : growTodo ? GROW_NEXT_LABEL[growTodo] : "Not in Clio yet",
       description: clioAutoMatter()
         ? `The client's contact and the consult's matter in Clio Manage. A matter staff made in Clio is picked up here on its own.${autoLine}`
-        : `The client's contact and the consult's matter. Push the matter from Clio Grow with "Convert to Clio Manage" so Grow and Manage stay linked — the dashboard picks it up here on its own. Use "Create in Clio" only for a lead with no Grow matter.`,
+        : `The client's contact and the consult's matter in Clio Manage. The advocate makes the matter in Clio Grow and clicks "Convert to Clio Manage", so Grow and Manage stay linked; the dashboard picks it up here on its own.`,
       body: (
         // Clio lookups can take a moment; the rest of the page doesn't wait.
         <Suspense fallback={<ClioStepSkeleton />}>
-          <ClioStep lead={lead} />
+          <ClioStep lead={lead} grow={growNoted ? { matterName: growNoted.matterName, matterUrl: growNoted.matterUrl } : null} />
         </Suspense>
       ),
     },
@@ -408,7 +411,7 @@ export default async function IntakeDetailPage({
       title: "Follow-up tasks",
       ok: tasksDone,
       summary: tasksDone ? whoWhen("clio_tasks") : plan.length ? `Due ${dueDay(plan[0].due)}` : "Waiting on the consult date",
-      description: `Three tasks on the Clio matter for the advocate, due one and two business days after the consult.${autoLine}`,
+      description: `Three tasks on the Clio matter for the advocate: the first follow-up on the consult day, the second and the review request the next business day.${autoLine}`,
       body: (
         <TasksStep
           leadId={lead.id}

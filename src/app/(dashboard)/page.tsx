@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server"
 import { IntakeOverview, type OverviewAppt } from "@/components/intake/intake-overview"
 import type { IntakeLead } from "@/types/database"
 import { getOverviewData } from "@/lib/queries"
+import { growMatterLeads } from "@/lib/grow-ready-server"
 import {
   buildDaySeries,
   computeKpis,
@@ -57,12 +58,14 @@ async function IntakeOverviewSection() {
       .order("datetime", { ascending: true })
       .limit(1000),
   ])
+  const rows = (leads ?? []) as unknown as IntakeLead[]
   return (
     <>
       <ClioSyncPing />
       <IntakeOverview
-        leads={(leads ?? []) as unknown as IntakeLead[]}
+        leads={rows}
         appts={(appts ?? []) as unknown as OverviewAppt[]}
+        growMatter={await growMatterLeads(supabase, rows)}
       />
     </>
   )

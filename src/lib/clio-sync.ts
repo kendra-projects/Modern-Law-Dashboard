@@ -47,8 +47,8 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
   let matterId = lead.clio_matter_id
   if (!matterId && contactId) {
     // The consult's matter is one opened for this person around or after the
-    // booking. Only link when exactly one fits; otherwise staff pick with the
-    // Create in Clio button, which shows every matter.
+    // booking. Only link when exactly one fits; otherwise staff pick it with the
+    // Link button on the lead page, which shows every matter.
     const since = new Date(lead.created_at).getTime() - 3 * DAY
     const fits = (await contactMatters(Number(contactId))).filter(
       (m) => new Date(m.created_at).getTime() >= since && m.status !== "Closed"
@@ -60,7 +60,7 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
         .update({ clio_matter_id: matterId, ...(EARLY.includes(lead.status) ? { status: "matter_created" as const } : {}) })
         .eq("id", lead.id)
       await log("clio_matter", { matter_id: fits[0].id, display: fits[0].display_number })
-      // Staff made it in Clio themselves, so a failed Create in Clio is settled.
+      // Staff made it in Clio themselves, so a failed automatic create is settled.
       await clearFailure(admin, lead.id, "clio_create")
       changes.push("matter")
     }

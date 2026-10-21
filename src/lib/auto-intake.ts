@@ -56,8 +56,8 @@ export const autoIntakeFrom = () => process.env.AUTO_INTAKE_FROM?.trim() || "202
  * dashboard then waits for that matter and picks it up (lib/clio-sync.ts)
  * instead of opening a second, unlinked one in Manage. The rest of the
  * automation (portal, Slack, tasks, sign-off) still runs once the matter is
- * there, and the lead page's "Create in Clio" button stays as a manual override
- * for a lead that has no Grow matter (e.g. a manual lead).
+ * there. The lead page has no button to open one in Manage any more: it lists
+ * what goes on the Grow matter, and links a matter when several fit.
  */
 export const clioAutoMatter = () => process.env.CLIO_AUTO_MATTER?.trim().toLowerCase() !== "off"
 

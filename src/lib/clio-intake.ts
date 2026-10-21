@@ -136,8 +136,9 @@ export async function lookupLeadInClio(lead: IntakeLead): Promise<ClioLookup> {
 }
 
 // ── Writing to Clio ─────────────────────────────────────────────────────────
-// Everything below creates records in the firm's live Clio. It only runs from
-// an explicit "Create in Clio" click (server action), and it is idempotent:
+// Everything below creates records in the firm's live Clio. Opening the
+// contact and matter only runs from the automatic intake when CLIO_AUTO_MATTER
+// is on (lib/auto-intake.ts; the lead page's button is gone), and it is idempotent:
 // a lead that already has clio_matter_id is never created twice, and a matter
 // staff made recently for the same client is reused instead of duplicated.
 

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeRangeSelect, useCutoff, withinRange } from "@/components/time-range-select"
 import { cn } from "@/lib/utils"
+import { GROW_NEXT_LABEL, growNext, type GrowNext } from "@/lib/grow-ready"
 import { QueueSkeleton } from "@/components/intake/intake-skeletons"
 import { FilterTransition, FilterLink, PendingArea } from "@/components/intake/filter-transition"
 
@@ -37,16 +38,20 @@ const STATUS_META: Record<
 }
 
 // Status filter groups: what the team thinks in, not the raw pipeline states.
-type Group = "all" | "new" | "progress" | "done" | "canceled" | "stopped"
+// "Grow matter" is the advocate's queue: conflict clear, no Manage matter yet,
+// so the matter is to be made (or converted) in Clio Grow (lib/grow-ready.ts).
+type Group = "all" | "new" | "grow" | "progress" | "done" | "canceled" | "stopped"
 const GROUPS: { key: Group; label: string }[] = [
   { key: "all", label: "All statuses" },
   { key: "new", label: "New" },
+  { key: "grow", label: "Grow matter to do" },
   { key: "progress", label: "In progress" },
   { key: "done", label: "Approved" },
   { key: "canceled", label: "Canceled" },
   { key: "stopped", label: "Stopped" },
 ]
-function groupOf(s: IntakeLeadStatus): Exclude<Group, "all"> {
+function groupOf(s: IntakeLeadStatus, next: GrowNext | null): Exclude<Group, "all"> {
+  if (next) return "grow"
   if (s === "received" || s === "enriched" || s === "conflict_pending") return "new"
   if (s === "done") return "done"
   if (s === "canceled") return "canceled"
@@ -69,10 +74,13 @@ function fmtDate(iso: string | null) {
   })
 }
 
-export function IntakeClient({ leads }: { leads: IntakeLead[] }) {
+export function IntakeClient({ leads, growMatter }: { leads: IntakeLead[]; growMatter: string[] }) {
   const pending = leads.filter((l) =>
     ["conflict_pending", "slack_pending"].includes(l.status)
   ).length
+  const hasGrow = new Set(growMatter)
+  const nextOf = (l: IntakeLead) => growNext(l, hasGrow.has(l.id))
+  const growCount = leads.filter((l) => nextOf(l)).length
 
   const [q, setQ] = React.useState("")
   const [range, setRange] = React.useState("all")
@@ -91,10 +99,13 @@ export function IntakeClient({ leads }: { leads: IntakeLead[] }) {
     return hay.includes(needle)
   })
   const counts = base.reduce<Record<Group, number>>(
-    (acc, l) => ({ ...acc, [groupOf(l.status)]: acc[groupOf(l.status)] + 1 }),
-    { all: base.length, new: 0, progress: 0, done: 0, canceled: 0, stopped: 0 }
+    (acc, l) => {
+      const g = groupOf(l.status, nextOf(l))
+      return { ...acc, [g]: acc[g] + 1 }
+    },
+    { all: base.length, new: 0, grow: 0, progress: 0, done: 0, canceled: 0, stopped: 0 }
   )
-  const shown = group === "all" ? base : base.filter((l) => groupOf(l.status) === group)
+  const shown = group === "all" ? base : base.filter((l) => groupOf(l.status, nextOf(l)) === group)
 
   // Opening a lead swaps the queue for the lead skeleton on the click itself,
   // instead of waiting for the server's first byte.
@@ -111,6 +122,11 @@ export function IntakeClient({ leads }: { leads: IntakeLead[] }) {
             New consultation leads and their automated admin progress.
             {pending > 0 && (
               <span className="text-accent"> · {pending} awaiting you</span>
+            )}
+            {growCount > 0 && (
+              <button type="button" onClick={() => setGroup("grow")} className="text-accent hover:underline">
+                {" "}· {growCount} waiting on a Grow matter
+              </button>
             )}
           </p>
         </div>
@@ -183,7 +199,8 @@ export function IntakeClient({ leads }: { leads: IntakeLead[] }) {
                 </tr>
               )}
               {shown.map((l) => {
-                const meta = STATUS_META[l.status]
+                const next = nextOf(l)
+                const meta = next ? { label: GROW_NEXT_LABEL[next], tone: "bg-accent/15 text-accent" } : STATUS_META[l.status]
                 return (
                   <tr
                     key={l.id}
