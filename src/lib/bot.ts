@@ -179,6 +179,9 @@ function sigSettled(steps: Steps, kind: "grow" | "portal", sig: string, dry: boo
   const sigOf = (key: string) => (steps.find((s) => s.step_key === key)?.detail as { sig?: string } | null)?.sig
   if (kind === "grow" && steps.some((s) => s.step_key === DONE_KEY.grow && s.state === "done") && sigOf(DONE_KEY.grow) === sig) return true
   if (dry && sigOf(`bot_${kind}_dry`) === sig) return true
+  // A test run that didn't finish is tried again after an hour.
+  const test = steps.find((s) => s.step_key === `bot_${kind}_dry`)
+  if (dry && (test?.detail as { failed?: boolean } | null)?.failed && Date.now() - new Date(test!.updated_at).getTime() < RETRY_AFTER) return true
   const bot = steps.find((s) => s.step_key === `bot_${kind}`)
   if (bot?.state === "awaiting_human" && sigOf(`bot_${kind}`) === sig) return true
   return bot?.state === "failed" && Date.now() - new Date(bot.updated_at).getTime() < RETRY_AFTER
@@ -512,6 +515,16 @@ async function recordJobResult(
   if (r.outcome === "dry") {
     await logStep(admin, { lead_id: r.lead_id, step_key: `${botKey}_dry`, state: "done", detail: { by: BOT_BY, note: r.note, sig } })
     await admin.from("intake_steps").delete().eq("lead_id", r.lead_id).eq("step_key", botKey).eq("state", "failed")
+    return { approved: false }
+  }
+  // A test run that didn't finish is a note on the lead, not work for Intake Recovery.
+  if ((r.outcome === "needs_staff" || r.outcome === "failed") && botModeFor(r.kind) === "dry") {
+    await logStep(admin, {
+      lead_id: r.lead_id,
+      step_key: `${botKey}_dry`,
+      state: "done",
+      detail: { by: BOT_BY, note: `didn't finish: ${r.note ?? r.outcome}`, failed: true },
+    })
     return { approved: false }
   }
   if (r.outcome === "needs_staff" || r.outcome === "failed") {
