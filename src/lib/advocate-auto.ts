@@ -1,7 +1,9 @@
 import "server-only"
 
 import { clioFetch, clioStatus } from "@/lib/clio"
-import { ADVOCATES, ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
+import { growStatus } from "@/lib/grow"
+import { advocateFromGrow, BY_GROW, growAssignment } from "@/lib/grow-advocate"
+import { ADVOCATES, ADVOCATE_CLIO_NAMES, isAdvocate, PICK_ADVOCATES } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { emailNoAdvocate } from "@/lib/team-alerts"
 import { slackConfigured, slackStatuses } from "@/lib/slack"
@@ -20,6 +22,10 @@ import type { IntakeLead } from "@/types/database"
 // the automatic intake, so the portal invite, the Slack post and the tasks
 // follow straight away. An advocate named in Acuity or picked on the lead page
 // is never replaced, and staff can change this one on the lead page.
+//
+// Since 22 Oct 2026 the advocate comes from the Clio Grow matter instead
+// (lib/grow-advocate.ts, syncAdvocateFromGrow below); this free pick only runs
+// with ADVOCATE_SOURCE=free.
 
 export const advocateAutoOn = () => (process.env.ADVOCATE_AUTO ?? "").trim().toLowerCase() === "on"
 const advocateAutoFrom = () => process.env.ADVOCATE_AUTO_FROM?.trim() || "2026-10-15T07:00:00Z"
@@ -113,7 +119,7 @@ export type AdvocatePick = { advocate: string | null; why: string }
 
 /** Who is free for a new booking, and why. Reads Clio, Slack and the dashboard's leads; changes nothing. */
 export async function pickAdvocate(admin: Admin, now = Date.now()): Promise<AdvocatePick> {
-  const pool = [...ADVOCATES] as string[]
+  const pool = [...PICK_ADVOCATES] as string[]
   const days = workdays(now)
 
   // Open consults ahead, and bookings in the last 7 days, per advocate.
@@ -170,6 +176,7 @@ export async function pickAdvocate(admin: Admin, now = Date.now()): Promise<Advo
  * check is clear. Returns the advocate, or null when it didn't assign.
  */
 export async function autoAssignAdvocate(admin: Admin, lead: Lead): Promise<string | null> {
+  if (advocateFromGrow()) return null
   if (!advocateAutoOn() || lead.source !== "acuity" || isAdvocate(lead.assigned_advocate)) return null
   if (lead.conflict_status !== "clear" || ["canceled", "stopped", "failed", "done"].includes(lead.status)) return null
   if (Date.parse(lead.created_at) < Date.parse(advocateAutoFrom())) return null
@@ -198,4 +205,66 @@ export async function autoAssignAdvocate(admin: Admin, lead: Lead): Promise<stri
   })
   await admin.from("intake_steps").delete().eq("lead_id", lead.id).eq("step_key", "advocate_auto")
   return pick.advocate
+}
+
+/**
+ * Take the advocate from the consult's Clio Grow matter ("Assigned to"), once
+ * the dashboard has found that matter (lib/grow-sync.ts). It replaces an
+ * advocate typed in Acuity or picked automatically, never one staff picked on
+ * the lead page. A Grow matter assigned to nobody, to someone who isn't a
+ * client advocate, or to several advocates leaves the lead waiting, with the
+ * reason on the lead page. Returns true when the lead's advocate changed.
+ */
+export async function syncAdvocateFromGrow(admin: Admin, lead: Lead): Promise<boolean> {
+  if (!advocateFromGrow() || lead.source !== "acuity") return false
+  if (["canceled", "stopped", "failed", "done"].includes(lead.status)) return false
+  if (Date.parse(lead.created_at) < Date.parse(advocateAutoFrom())) return false
+  if (!lead.consult_datetime || Date.parse(lead.consult_datetime) <= Date.now()) return false
+
+  const { data: steps } = await admin
+    .from("intake_steps")
+    .select("step_key, state, detail")
+    .eq("lead_id", lead.id)
+    .in("step_key", ["grow_note", "advocate_assigned", "advocate_auto"])
+  const find = (key: string) => (steps ?? []).find((s) => s.step_key === key)
+  const assigned = (find("advocate_assigned")?.state === "done" ? find("advocate_assigned")?.detail : null) as
+    | { by?: string; advocate?: string }
+    | null
+  // Staff picked the advocate on the lead page: theirs stands.
+  if (assigned?.by && assigned.by !== "Automatic" && assigned.by !== BY_GROW) return false
+
+  const waitFor = async (why: string) => {
+    if ((find("advocate_auto")?.detail as { why?: string } | null)?.why === why) return false
+    await logStep(admin, { lead_id: lead.id, step_key: "advocate_auto", state: "pending", detail: { by: BY_GROW, why } })
+    return false
+  }
+  const matterId = (find("grow_note")?.state === "done" ? (find("grow_note")?.detail as { matter_id?: string | number } | null)?.matter_id : null) ?? null
+  if (matterId == null) return waitFor("waiting for the client's Clio Grow matter and its Assigned to")
+  if (!(await growStatus()).connected) return false
+
+  const grow = await growAssignment(String(matterId))
+  if (!grow.advocate) {
+    return waitFor(
+      grow.assignees.length
+        ? `the Clio Grow matter is assigned to ${grow.assignees.join(", ")}, not one client advocate`
+        : "nobody is assigned on the Clio Grow matter yet"
+    )
+  }
+  if (assigned?.by === BY_GROW && lead.assigned_advocate === grow.advocate) return false
+
+  const { data } = await admin.from("intake_leads").update({ assigned_advocate: grow.advocate }).eq("id", lead.id).select("id")
+  if (!data?.length) return false
+  await logStep(admin, {
+    lead_id: lead.id,
+    step_key: "advocate_assigned",
+    state: "done",
+    detail: {
+      advocate: grow.advocate,
+      by: BY_GROW,
+      why: `Assigned to ${ADVOCATE_CLIO_NAMES[grow.advocate] ?? grow.advocate} on the Clio Grow matter`,
+      booked_as: lead.assigned_advocate ?? null,
+    },
+  })
+  await admin.from("intake_steps").delete().eq("lead_id", lead.id).eq("step_key", "advocate_auto")
+  return true
 }

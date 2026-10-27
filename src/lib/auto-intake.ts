@@ -1,19 +1,23 @@
 import "server-only"
 
-import { autoAssignAdvocate } from "@/lib/advocate-auto"
+import { autoAssignAdvocate, syncAdvocateFromGrow } from "@/lib/advocate-auto"
+import { botJobLive } from "@/lib/bot-mode"
 import { consultLocation } from "@/lib/attorney-zoom"
 import { clioStatus } from "@/lib/clio"
 import {
   createFollowUpTasks,
   executeClioPlan,
+  fillConvertedMatter,
   findClioContact,
+  matterFillOn,
   planClioCreate,
   sendClioPortalInvite,
 } from "@/lib/clio-intake"
 import { syncLeadFromClio } from "@/lib/clio-sync"
 import { consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { consultPost, postMentions, slackEscape } from "@/lib/consult-post"
-import { consultDay, followUpPlan } from "@/lib/follow-ups"
+import { consultDay, followUpPlan, manageFollowUpsOn } from "@/lib/follow-ups"
+import { advocateFromGrow, advocateSettled, BY_GROW } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
@@ -36,8 +40,12 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // button, after the Clio and Slack sync has picked up anything done by hand,
 // so nothing is made twice. A step that can't run yet waits for the next
 // trigger: the booking, the conflict decision, the advocate, a lead page
-// opening, or the open-leads sync. A booking nobody was assigned to gets the
-// free advocate first, with ADVOCATE_AUTO=on (lib/advocate-auto.ts).
+// opening, or the open-leads sync. The advocate comes from the client's Clio
+// Grow matter (lib/grow-advocate.ts): the portal, the Slack post and the tasks
+// wait until Grow names one, so they always match Grow. With
+// ADVOCATE_SOURCE=free a booking nobody was assigned to gets the free advocate
+// instead, with ADVOCATE_AUTO=on (lib/advocate-auto.ts). A matter pushed from
+// Grow gets what the convert leaves blank filled in (fillConvertedMatter).
 
 export type AutoIntakeMode = "off" | "log" | "on"
 
@@ -100,9 +108,10 @@ async function load(admin: Admin, leadId: string): Promise<State | null> {
   return {
     lead,
     steps: rows,
-    portal: Boolean(lead.clio_portal_id) || done("clio_portal_sent"),
+    portal: Boolean(lead.clio_portal_id) || done("clio_portal_sent") || done("clio_client_portal"),
     slack: done("slack_posted"),
-    tasks: done("clio_tasks"),
+    // Follow-ups live in the Grow checklist unless CLIO_FOLLOWUP_TASKS=on.
+    tasks: done("clio_tasks") || !manageFollowUpsOn(),
     text: done("clio_text_sent"),
     lexi: done("lexi_followups"),
   }
@@ -125,6 +134,9 @@ function inScope(lead: IntakeLead) {
 const advocateOf = (lead: IntakeLead) =>
   lead.assigned_advocate ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate] ?? null : null
 
+/** The advocate the portal, Slack post and tasks may use: a real one, and final (from Grow or staff). */
+const readyAdvocate = (s: State) => (advocateSettled(s.steps) ? advocateOf(s.lead) : null)
+
 /** The automation's own attempt at this step failed within RETRY_AFTER. */
 function backingOff(s: State, failureKey: string) {
   return s.steps.some(
@@ -136,12 +148,28 @@ function backingOff(s: State, failureKey: string) {
   )
 }
 
-/** The automation picked the advocate after staff had posted the consult in Slack by hand. */
+/** The matter still needs what Grow's convert leaves blank (once per matter). */
+function fillDue(s: State, matterId: string | null) {
+  return (
+    matterFillOn() &&
+    Boolean(matterId) &&
+    !s.steps.some(
+      (x) =>
+        x.step_key === "clio_matter_filled" &&
+        x.state === "done" &&
+        String((x.detail as { matter_id?: string | number } | null)?.matter_id ?? "") === String(matterId)
+    ) &&
+    !backingOff(s, "clio_matter_fill")
+  )
+}
+
+/** The automation (or Grow) set the advocate after staff had posted the consult in Slack by hand. */
 function advocateNoteDue(s: State) {
   const step = (key: string) => s.steps.find((x) => x.step_key === key)
+  const by = (step("advocate_assigned")?.detail as { by?: string } | null)?.by
   return (
-    Boolean(advocateOf(s.lead)) &&
-    (step("advocate_assigned")?.detail as { by?: string } | null)?.by === BY &&
+    Boolean(readyAdvocate(s)) &&
+    (by === BY || by === BY_GROW) &&
     (step("slack_posted")?.detail as { action?: string } | null)?.action === "detected" &&
     !step("slack_advocate_note") &&
     !backingOff(s, "slack_advocate_note_failed")
@@ -150,7 +178,7 @@ function advocateNoteDue(s: State) {
 
 /** Is there anything the automation could still do, without asking Clio or Slack? */
 function workLeft(s: State) {
-  const advocate = Boolean(advocateOf(s.lead))
+  const advocate = Boolean(readyAdvocate(s))
   const slack = (advocate && !s.slack && !backingOff(s, "slack_post")) || advocateNoteDue(s)
   // With auto matter creation off, a matterless lead waits for the Grow-pushed
   // matter; only the Slack post (which needs no matter) is work the automation
@@ -158,7 +186,8 @@ function workLeft(s: State) {
   if (!s.lead.clio_matter_id) return clioAutoMatter() ? !backingOff(s, "clio_create") || slack : slack
   return (
     slack ||
-    (advocate && !s.portal && !backingOff(s, "clio_portal")) ||
+    fillDue(s, s.lead.clio_matter_id) ||
+    (advocate && !s.portal && !botJobLive("portal") && !backingOff(s, "clio_portal")) ||
     (advocate && !s.tasks && !backingOff(s, "clio_tasks"))
   )
 }
@@ -192,8 +221,11 @@ export async function runAutoIntake(leadId: string): Promise<AutoIntakeResult | 
 
   let first = await load(admin, leadId)
   if (!first || !inScope(first.lead)) return null
-  if (mode === "on" && !advocateOf(first.lead) && (await autoAssignAdvocate(admin, first.lead).catch(() => null))) {
-    first = (await load(admin, leadId)) ?? first
+  if (mode === "on") {
+    const changed = advocateFromGrow()
+      ? await syncAdvocateFromGrow(admin, first.lead).catch(() => false)
+      : !advocateOf(first.lead) && Boolean(await autoAssignAdvocate(admin, first.lead).catch(() => null))
+    if (changed) first = (await load(admin, leadId)) ?? first
   }
   if (!workLeft(first)) return null
   if (!(await takeLock(admin, leadId))) return null
@@ -219,7 +251,9 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     logStep(admin, { lead_id: lead.id, step_key, state, detail: { ...detail, by: BY }, error: error ?? null })
   const why = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback)
 
-  const advocate = advocateOf(lead)
+  const advocate = readyAdvocate(s)
+  // Said when the advocate is missing: from Grow, or (ADVOCATE_SOURCE=free) none picked yet.
+  const noAdvocate = advocateFromGrow() ? "waits for the advocate on the Clio Grow matter" : "needs the advocate"
   // The lead page's warning: Acuity and Grow are typed separately, so a typo
   // can split one client into two spellings. Nothing goes to the client or the
   // team under a name that might be wrong.
@@ -291,10 +325,36 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     }
   }
 
+  // ── The matter Grow pushed: fill in what the convert leaves blank ──
+  // Opposing Party Name (required), practice area, originating attorney, the
+  // opposing party as a related contact, and the client and opposing party
+  // named on each other's contact; only empty fields, once per matter.
+  if (matterId && fillDue(s, matterId)) {
+    if (dry) done.push("fill in the Clio matter")
+    else {
+      try {
+        const r = await fillConvertedMatter(lead, matterId, contactId)
+        if (r.opContactId && !lead.clio_op_contact_id) {
+          await admin.from("intake_leads").update({ clio_op_contact_id: String(r.opContactId) }).eq("id", lead.id)
+        }
+        await step("clio_matter_filled", "done", { matter_id: matterId, changed: r.changed, notes: r.notes })
+        await clearFailure(admin, lead.id, "clio_matter_fill")
+        if (r.changed.length) done.push(`filled in the Clio matter (${r.changed.join(", ")})`)
+      } catch (e) {
+        const msg = why(e, "Clio didn't take the matter details.")
+        await step("clio_matter_fill", "failed", { matter_id: matterId }, msg)
+        failed.push(`Clio matter details: ${msg}`)
+      }
+    }
+  }
+
   // ── Client portal invite ──
+  // While the bot's portal job is live it opens the real client portal, so
+  // the internal-message invite isn't sent as well (lib/bot.ts).
   if (!portalDone) {
-    if (!hasMatter) waiting.push("Portal invite: needs the Clio matter")
-    else if (!advocate) waiting.push("Portal invite: needs the advocate")
+    if (botJobLive("portal")) waiting.push("Portal invite: the bot opens the Clio client portal")
+    else if (!hasMatter) waiting.push("Portal invite: needs the Clio matter")
+    else if (!advocate) waiting.push(`Portal invite: ${noAdvocate}`)
     else if (nameIssue) waiting.push(`Portal invite: ${nameIssue}`)
     else if (backingOff(s, "clio_portal")) waiting.push("Portal invite: tries again an hour after the last error")
     else if (dry) done.push("send the portal invite")
@@ -323,7 +383,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   // ── #initialconsultations post ──
   if (!s.slack) {
     if (!slackConfigured()) waiting.push("Slack post: Slack is not connected")
-    else if (!advocate) waiting.push("Slack post: needs the advocate")
+    else if (!advocate) waiting.push(`Slack post: ${noAdvocate}`)
     else if (nameIssue) waiting.push(`Slack post: ${nameIssue}`)
     else if (backingOff(s, "slack_post")) waiting.push("Slack post: tries again an hour after the last error")
     else {
@@ -382,9 +442,10 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
         const name = ADVOCATE_CLIO_NAMES[lead.assigned_advocate!] ?? lead.assigned_advocate!
         const ids = await slackUserIds([name])
         const who = ids[name] ? `<@${ids[name]}>` : name
+        const fromGrow = (s.steps.find((x) => x.step_key === "advocate_assigned")?.detail as { by?: string } | null)?.by === BY_GROW
         const posted = await postToChannel(
           INITIAL_CONSULTS_CHANNEL,
-          `Assigned Advocate: ${who} (picked automatically by the dashboard)`,
+          `Assigned Advocate: ${who} (${fromGrow ? "from the Clio Grow matter" : "picked automatically by the dashboard"})`,
           ts
         )
         await step("slack_advocate_note", "done", { ts: posted.ts, link: posted.link, advocate: lead.assigned_advocate })
@@ -401,7 +462,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   // ── Follow-up tasks ──
   if (!tasksDone) {
     if (!hasMatter) waiting.push("Follow-up tasks: need the Clio matter")
-    else if (!advocate) waiting.push("Follow-up tasks: need the advocate")
+    else if (!advocate) waiting.push(`Follow-up tasks: ${noAdvocate}`)
     else if (backingOff(s, "clio_tasks")) waiting.push("Follow-up tasks: try again an hour after the last error")
     else if (dry) done.push("create the follow-up tasks")
     else {

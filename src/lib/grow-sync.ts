@@ -89,6 +89,12 @@ async function contactIds(lead: GrowLead): Promise<Set<string | number>> {
   return ids
 }
 
+/** The client's Grow contact (same email or phone), when exactly one fits; null otherwise. */
+export async function growContactId(lead: GrowLead): Promise<string | null> {
+  const ids = Array.from(await contactIds(lead))
+  return ids.length === 1 ? String(ids[0]) : null
+}
+
 /**
  * The client's matter for this consult: their one matter still in intake, or,
  * if they have several in intake, the one opened around the booking. Hired

@@ -26,15 +26,22 @@ import type { IntakeLead, IntakeStep } from "@/types/database"
 // link to it (lib/conflict-email.ts). A match is never stopped automatically:
 // most are only the same name, and a stopped lead gets nothing more.
 //
+// With CONFLICT_WAIT_FOR_MATTER=on, a clean search clears the check only once
+// the consult's matter is in Clio Manage and the search ran with it (the firm,
+// 22 Oct 2026: a self-scheduled booking was cleared before any matter
+// existed). Until then the lead waits; a match is still emailed straight away.
+//
 // Runs when a booking comes in, when the lead's page opens and with the
 // open-leads sync, for leads whose conflict check is still pending. A saved
-// search is reused until a name, the lead's Clio records or 12 hours change.
+// search is reused until a name, the lead's Clio records or 12 hours change,
+// so the matter arriving starts a new search.
 
 export const CONFLICT_SEARCH = "conflict_search"
 const FRESH_MS = 12 * 60 * 60 * 1000
 const PER_SIDE = 8
 
 export const conflictAutoOn = () => (process.env.CONFLICT_AUTO ?? "").trim().toLowerCase() === "on"
+const conflictWaitsForMatter = () => (process.env.CONFLICT_WAIT_FOR_MATTER ?? "").trim().toLowerCase() === "on"
 const conflictAutoFrom = () => process.env.CONFLICT_AUTO_FROM?.trim() || "2026-10-01T07:00:00Z"
 
 export type ConflictRole = { text: string; url: string | null; flag: boolean }
@@ -308,6 +315,8 @@ async function settleConflict(admin: Admin, lead: Lead, search: ConflictSearch):
     await emailConflict(admin, lead, search).catch(() => false)
     return false
   }
+  // No clearing before the matter exists (fresh() above means this search ran with it).
+  if (conflictWaitsForMatter() && (!lead.clio_matter_id || !search.matter_id)) return false
   const early = ["received", "enriched", "conflict_pending"].includes(lead.status)
   const { data, error } = await admin
     .from("intake_leads")

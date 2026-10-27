@@ -141,6 +141,7 @@ export async function lookupLeadInClio(lead: IntakeLead): Promise<ClioLookup> {
 // is on (lib/auto-intake.ts; the lead page's button is gone), and it is idempotent:
 // a lead that already has clio_matter_id is never created twice, and a matter
 // staff made recently for the same client is reused instead of duplicated.
+// fillConvertedMatter only fills empty fields on a matter Grow pushed.
 
 type ClioCustomField = {
   id: number
@@ -199,6 +200,26 @@ function splitName(full: string) {
   const parts = full.trim().split(/\s+/)
   if (parts.length === 1) return { first_name: parts[0], last_name: "" }
   return { first_name: parts.slice(0, -1).join(" "), last_name: parts[parts.length - 1] }
+}
+
+/** Acuity's answer when there is no opposing party; the checklist writes "N/A". */
+const NO_OPPOSING = /^(n\/?a|no|none|unknown|-+)$/i
+
+/** One person's full name: two words or more, not a list ("X, and Y") and not "N/A". */
+const onePerson = (name: string) => !NO_OPPOSING.test(name) && name.split(/\s+/).length >= 2 && !/,|\band\b|&/i.test(name)
+
+/** The opposing party's Clio contact: the person with exactly this name, or a new one. */
+async function opposingPartyContact(name: string): Promise<number> {
+  const found = await clioFetch<{ data: { id: number; name: string; type: string }[] }>(
+    `/api/v4/contacts?query=${encodeURIComponent(name)}&type=Person&fields=id,name,type&limit=10`
+  )
+  const exact = found.data.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase())
+  if (exact) return exact.id
+  const made = await clioFetch<{ data: { id: number } }>("/api/v4/contacts?fields=id", {
+    method: "POST",
+    body: JSON.stringify({ data: { type: "Person", ...splitName(name) } }),
+  })
+  return made.data.id
 }
 
 export type ClioPlan = {
@@ -432,18 +453,7 @@ export async function executeClioPlan(plan: ClioPlan) {
   let opContactId: number | null = null
   let opError: string | null = null
   if (plan.opposingParty && plan.opposingParty !== "N/A") try {
-    const found = await clioFetch<{ data: { id: number; name: string; type: string }[] }>(
-      `/api/v4/contacts?query=${encodeURIComponent(plan.opposingParty)}&type=Person&fields=id,name,type&limit=10`
-    )
-    const exact = found.data.find(
-      (c) => c.name.trim().toLowerCase() === plan.opposingParty.trim().toLowerCase()
-    )
-    opContactId =
-      exact?.id ??
-      (await post<{ id: number }>("/api/v4/contacts?fields=id", {
-        type: "Person",
-        ...splitName(plan.opposingParty),
-      })).data.id
+    opContactId = await opposingPartyContact(plan.opposingParty)
     await post("/api/v4/relationships?fields=id", {
       description: "Opposing Party",
       matter: { id: matter.id },
@@ -461,4 +471,127 @@ export async function executeClioPlan(plan: ClioPlan) {
     opContactId,
     opError,
   }
+}
+
+/** CLIO_FILL_MATTER=on lets the dashboard fill in matters pushed from Grow (off until then). */
+export const matterFillOn = () => process.env.CLIO_FILL_MATTER?.trim().toLowerCase() === "on"
+
+type ContactCustomField = { id: number; name: string; field_type: string }
+
+async function contactCustomField(name: string): Promise<ContactCustomField | null> {
+  const res = await clioFetch<{ data: ContactCustomField[] }>(
+    `/api/v4/custom_fields?parent_type=Contact&query=${encodeURIComponent(name)}&fields=id,name,field_type&limit=50`
+  )
+  const want = name.trim().toLowerCase()
+  return res.data.find((f) => f.name.trim().toLowerCase() === want) ?? null
+}
+
+/**
+ * Put the other side on a contact's "Opposing Party" custom field, if it is
+ * empty. This is how the firm links the client and the opposing party to each
+ * other in Clio Manage (Kendra, 23 Oct 2026): the client's contact names the
+ * opposing party, and the opposing party's contact names the client. A field
+ * of the Contact type takes the other contact; a text field takes the name.
+ */
+async function linkOpposingParty(field: ContactCustomField, contactId: number, other: { id: number; name: string }) {
+  const { data: c } = await clioFetch<{ data: { custom_field_values?: { id: string | number; value?: unknown; custom_field?: { id: number } | null }[] | null } }>(
+    `/api/v4/contacts/${contactId}?fields=${encodeURIComponent("id,custom_field_values{id,value,custom_field}")}`
+  )
+  const current = (c.custom_field_values ?? []).find((v) => v.custom_field?.id === field.id)
+  if (current && current.value != null && String(current.value).trim() !== "") return false
+  const value = field.field_type.toLowerCase() === "contact" ? other.id : other.name
+  await clioFetch(`/api/v4/contacts/${contactId}?fields=id`, {
+    method: "PATCH",
+    body: JSON.stringify({ data: { custom_field_values: [current ? { id: current.id, value } : { custom_field: { id: field.id }, value }] } }),
+  })
+  return true
+}
+
+type MatterNow = {
+  id: number
+  practice_area?: { id: number } | null
+  originating_attorney?: { id: number } | null
+  custom_field_values?: { id: string | number; value?: unknown; custom_field?: { id: number } | null }[] | null
+  relationships?: { id: number; description?: string | null; contact?: { id: number } | null }[] | null
+}
+
+/**
+ * Fill in what Clio Grow's "Convert to Clio Manage" leaves blank on the
+ * consult's matter (the firm, 22 Oct 2026): the required Opposing Party Name
+ * ("N/A" when there is none), the practice area, the originating attorney (the
+ * consulting attorney), and the opposing party as a related contact on the
+ * matter, and the client and opposing party named on each other's contact
+ * ("Opposing Party" field). Only empty fields are filled: nothing staff or
+ * Grow set is changed. An opposing party that isn't one person's full name is
+ * reported, not linked.
+ */
+export async function fillConvertedMatter(lead: IntakeLead, matterId: string, clientContactId: string | null) {
+  const fields = "id,practice_area{id},originating_attorney{id},custom_field_values{id,value,custom_field},relationships{id,description,contact{id}}"
+  const { data: m } = await clioFetch<{ data: MatterNow }>(`/api/v4/matters/${matterId}?fields=${encodeURIComponent(fields)}`)
+  const changed: string[] = []
+  const notes: string[] = []
+  const patch: Record<string, unknown> = {}
+  const op = lead.opposing_party_name?.trim() || ""
+
+  const opField = await matterCustomField("Opposing Party Name")
+  if (!opField) notes.push('Clio custom field "Opposing Party Name" not found')
+  else {
+    const current = (m.custom_field_values ?? []).find((c) => c.custom_field?.id === opField.id)
+    if (!current || current.value == null || String(current.value).trim() === "") {
+      const value = !op || NO_OPPOSING.test(op) ? "N/A" : op
+      patch.custom_field_values = [current ? { id: current.id, value } : { custom_field: { id: opField.id }, value }]
+      changed.push("Opposing Party Name")
+    }
+  }
+
+  if (!m.practice_area) {
+    const areaName = practiceAreaName(lead.matter_type) ?? lead.matter_type?.trim()
+    if (areaName) {
+      const areas = await clioFetch<{ data: { id: number; name: string }[] }>("/api/v4/practice_areas?fields=id,name&limit=200")
+      const area = areas.data.find((a) => a.name.trim().toLowerCase() === areaName.toLowerCase())
+      if (area) {
+        patch.practice_area = { id: area.id }
+        changed.push("practice area")
+      } else notes.push(`No Clio practice area for "${lead.matter_type}", left blank`)
+    }
+  }
+
+  if (!m.originating_attorney && lead.consulting_attorney) {
+    const id = await clioUserId(lead.consulting_attorney)
+    if (id) {
+      patch.originating_attorney = { id }
+      changed.push("originating attorney")
+    } else notes.push(`No Clio user named "${lead.consulting_attorney}", originating attorney left blank`)
+  }
+
+  if (Object.keys(patch).length) {
+    await clioFetch(`/api/v4/matters/${matterId}?fields=id`, { method: "PATCH", body: JSON.stringify({ data: patch }) })
+  }
+
+  // The opposing party as a related contact, unless the matter already has one.
+  let opContactId = (m.relationships ?? []).find((r) => /opposing/i.test(r.description ?? ""))?.contact?.id ?? null
+  if (!opContactId && op && !NO_OPPOSING.test(op)) {
+    if (!onePerson(op)) notes.push(`Opposing party "${op}" isn't one person's full name, not linked`)
+    else {
+      opContactId = await opposingPartyContact(op)
+      await clioFetch("/api/v4/relationships?fields=id", {
+        method: "POST",
+        body: JSON.stringify({ data: { description: "Opposing Party", matter: { id: Number(matterId) }, contact: { id: opContactId } } }),
+      })
+      changed.push("opposing party as related contact")
+    }
+  }
+
+  // The client and the opposing party named on each other's contact.
+  if (opContactId && clientContactId && op && !NO_OPPOSING.test(op)) {
+    const field = await contactCustomField("Opposing Party")
+    if (!field) notes.push('Clio contact field "Opposing Party" not found')
+    else {
+      const client = [lead.client_first, lead.client_last].filter(Boolean).join(" ").trim()
+      if (await linkOpposingParty(field, Number(clientContactId), { id: opContactId, name: op })) changed.push("client's Opposing Party field")
+      if (client && (await linkOpposingParty(field, opContactId, { id: Number(clientContactId), name: client })))
+        changed.push("opposing party's Opposing Party field")
+    }
+  }
+  return { changed, notes, opContactId }
 }

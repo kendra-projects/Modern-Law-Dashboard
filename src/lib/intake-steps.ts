@@ -22,6 +22,7 @@ export type StepDetail = {
   opposing_skipped?: string | null
   note?: string | null
   why?: string
+  changed?: string[]
   to?: string
   reason?: string
   scenario?: string
@@ -55,7 +56,9 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     case "advocate_assigned":
       return d.by === "Automatic"
         ? `Assigned to ${d.advocate ?? "advocate"} automatically${d.why ? `: ${d.why}` : ""}`
-        : `Assigned to ${d.advocate ?? "advocate"}`
+        : d.by === "Clio Grow"
+          ? `Assigned to ${d.advocate ?? "advocate"} from the Clio Grow matter`
+          : `Assigned to ${d.advocate ?? "advocate"}`
     case "advocate_auto":
       return `Advocate not assigned yet: ${d.why ?? "nobody is free"}`
     case "slack_advocate_note":
@@ -84,6 +87,10 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       }${d.display ? `: ${d.display}` : ""}`
     case "clio_opposing_party":
       return s.state === "done" ? "Opposing party added in Clio" : "Opposing party not linked"
+    case "clio_matter_filled":
+      return d.changed?.length ? `Clio matter filled in: ${d.changed.join(", ")}` : "Clio matter checked: nothing was missing"
+    case "clio_matter_fill":
+      return "Filling in the Clio matter failed"
     case "clio_create":
       return "Clio create failed"
     case "clio_text_sent":
@@ -166,6 +173,18 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       return `Bot test run (Lexi): ${d.note ?? "would pause the follow-ups"}`
     case "bot_text_dry":
       return `Bot test run (text): ${d.note ?? "would send the confirmation text"}`
+    case "grow_bot":
+      return `Clio Grow matter worked by the bot${d.note ? `: ${d.note}` : ""}`
+    case "bot_grow":
+      return s.state === "awaiting_human" ? "The bot left the Clio Grow matter for staff" : "The bot couldn't finish the Clio Grow matter"
+    case "bot_grow_dry":
+      return `Bot test run (Grow): ${d.note ?? "would work the Grow matter"}`
+    case "clio_client_portal":
+      return d.action === "found" ? "Clio client portal already open on the matter" : "Clio client portal opened by the bot"
+    case "bot_portal":
+      return s.state === "awaiting_human" ? "The bot left the client portal for staff" : "The bot couldn't open the client portal"
+    case "bot_portal_dry":
+      return `Bot test run (portal): ${d.note ?? "would open the client portal"}`
     default:
       return s.step_key.replace(/_/g, " ")
   }
@@ -228,6 +247,8 @@ export function leadStepFor(stepKey: string): string | null {
   if (stepKey.startsWith("slack_")) return "slack"
   if (stepKey.startsWith("bot_lexi")) return "lexi"
   if (stepKey.startsWith("bot_text")) return "text"
+  if (stepKey.startsWith("bot_grow")) return "grow"
+  if (stepKey.startsWith("bot_portal") || stepKey === "clio_client_portal") return "portal"
   const map: Record<string, string> = {
     lexi_followups: "lexi",
     lexi_email: "lexi",

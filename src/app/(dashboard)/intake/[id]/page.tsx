@@ -9,7 +9,7 @@ import { LeadView, BookingDetails, type LeadFact } from "@/components/intake/lea
 import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspace"
 import type { ActivityRow } from "@/components/intake/lead-activity"
 import { ClioSyncPing } from "@/components/intake/clio-sync-ping"
-import { followUpPlan } from "@/lib/follow-ups"
+import { followUpPlan, manageFollowUpsOn } from "@/lib/follow-ups"
 import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { CLIO_APP } from "@/lib/clio-intake"
 import { describeStep } from "@/lib/intake-steps"
@@ -154,7 +154,9 @@ export default async function IntakeDetailPage({
 
   const portalDone = Boolean(lead.clio_portal_id) || Boolean(lastDone("clio_portal_sent"))
   const textDone = Boolean(lastDone("clio_text_sent"))
-  const tasksDone = Boolean(lastDone("clio_tasks"))
+  // The firm's follow-ups are on the Clio Grow checklist unless CLIO_FOLLOWUP_TASKS=on.
+  const tasksInGrow = !manageFollowUpsOn()
+  const tasksDone = Boolean(lastDone("clio_tasks")) || tasksInGrow
   const approved = lead.status === "done"
   const needsMatter = !lead.clio_matter_id ? `Needs the Clio matter first (step ${n(5)}).` : null
   const needsClear = lead.conflict_status !== "clear" ? `Clear the conflict check first (step ${n(3)}).` : null
@@ -410,8 +412,10 @@ export default async function IntakeDetailPage({
       key: "tasks",
       title: "Follow-up tasks",
       ok: tasksDone,
-      summary: tasksDone ? whoWhen("clio_tasks") : plan.length ? `Due ${dueDay(plan[0].due)}` : "Waiting on the consult date",
-      description: `Three tasks on the Clio matter for the advocate: the first follow-up on the consult day, the second and the review request the next business day.${autoLine}`,
+      summary: tasksInGrow && !lastDone("clio_tasks") ? "On the Clio Grow checklist" : tasksDone ? whoWhen("clio_tasks") : plan.length ? `Due ${dueDay(plan[0].due)}` : "Waiting on the consult date",
+      description: tasksInGrow
+        ? "The follow-ups are the last three items of the Standard Consult Scheduled Checklist in Clio Grow: the first follow-up on the consult day, the second and the review request the next business day."
+        : `Three tasks on the Clio matter for the advocate: the first follow-up on the consult day, the second and the review request the next business day.${autoLine}`,
       body: (
         <TasksStep
           leadId={lead.id}

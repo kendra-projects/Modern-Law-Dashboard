@@ -6,6 +6,22 @@
 
 const TZ = "America/Phoenix"
 
+/**
+ * Whether the dashboard puts these tasks on the Clio Manage matter.
+ * CLIO_FOLLOWUP_TASKS=off stops it: the firm works its follow-ups from the
+ * Clio Grow checklist (Standard Consult Scheduled Checklist), where staff tick
+ * them off. Of the 123 Manage tasks the dashboard made from 8 to 23 Oct, none
+ * was ever completed and staff deleted many (checked 27 Oct 2026). The bot
+ * sets the Grow tasks' dates instead (lib/bot.ts, the "grow" job).
+ */
+export const manageFollowUpsOn = () => process.env.CLIO_FOLLOWUP_TASKS?.trim().toLowerCase() !== "off"
+
+/** A follow-up's due time as Clio Grow takes it: 5 pm Arizona on the due day, "MM/DD/YYYY 05:00 PM". */
+export function growDue(ymd: string) {
+  const [y, m, d] = ymd.split("-")
+  return `${m}/${d}/${y} 05:00 PM`
+}
+
 export const FOLLOW_UPS = [
   { name: "Post Consultation follow up 1", businessDays: 0 },
   { name: "Post Consultation follow up 2", businessDays: 1 },
