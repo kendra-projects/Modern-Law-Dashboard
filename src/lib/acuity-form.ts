@@ -108,7 +108,7 @@ export async function fillAcuityForm(db: Db, lead: Lead): Promise<{ changed: str
   notes.push("Resend in Acuity stays with staff")
 
   if (want.size) {
-    const res = await fetch(`https://acuityscheduling.com/api/v1/appointments/${lead.external_id}?admin=true`, {
+    const res = await fetch(`https://acuityscheduling.com/api/v1/appointments/${lead.external_id}?admin=true&noEmail=true`, {
       method: "PUT",
       headers: { Authorization: auth, "Content-Type": "application/json" },
       body: JSON.stringify({
