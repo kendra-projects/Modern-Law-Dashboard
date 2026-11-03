@@ -531,7 +531,7 @@ type MatterNow = {
  * (a current client's case) is never touched.
  */
 export async function fillConvertedMatter(lead: IntakeLead, matterId: string, clientContactId: string | null) {
-  const fields = "id,status,created_at,practice_area{id},originating_attorney{id},custom_field_values{id,value,custom_field},relationships{id,description,contact{id}}"
+  const fields = "id,status,created_at,practice_area{id},originating_attorney{id},custom_field_values{id,value,custom_field},relationships{id,description,contact}"
   const { data: m } = await clioFetch<{ data: MatterNow }>(`/api/v4/matters/${matterId}?fields=${encodeURIComponent(fields)}`)
   const changed: string[] = []
   const notes: string[] = []
