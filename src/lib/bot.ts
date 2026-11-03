@@ -3,7 +3,7 @@ import "server-only"
 import { consultLocation } from "@/lib/attorney-zoom"
 import { pickAdvocate } from "@/lib/advocate-auto"
 import { botKinds, botModeFor, type BotKind, type BotMode } from "@/lib/bot-mode"
-import { CLIO_APP, matterDescription, practiceAreaName } from "@/lib/clio-intake"
+import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } from "@/lib/clio-intake"
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { cannotAutoClear, savedSearch } from "@/lib/conflict-search"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
@@ -20,7 +20,7 @@ import { emailTextForStaff } from "@/lib/team-alerts"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
-// The intake bot (the private repo abdulqayyum3116-art/modern-law-bot) does
+// The intake bot (the private repo kendra-projects/modern-law-bot) does
 // the two steps no API allows: it pauses Lexi's follow-up texts in LexiDesk
 // (for bookings Lexi didn't make; LexiDesk stops its own) and sends the
 // confirmation text from the Clio matter. It runs on GitHub Actions with a
@@ -75,7 +75,7 @@ const inRange = (lead: Pick<IntakeLead, "created_at">, kind: BotKind) =>
 /** The bot (on or on a test run) has this job for this lead. */
 export const botHandles = (lead: Pick<IntakeLead, "source" | "created_at">, kind: BotKind) =>
   lead.source === "acuity" && inRange(lead, kind)
-const BOT_REPO = () => process.env.BOT_REPO?.trim() || "abdulqayyum3116-art/modern-law-bot"
+const BOT_REPO = () => process.env.BOT_REPO?.trim() || "kendra-projects/modern-law-bot"
 
 export const BOT_BY = "Bot"
 const CLOSED: IntakeLead["status"][] = ["canceled", "stopped", "failed", "done"]
@@ -133,6 +133,10 @@ export type BotTask =
       status_from: string[]
       /** Custom fields by Grow's name, set only when empty. */
       fields: Record<string, string | boolean>
+      /** Grow marketing source (Grow's name) to set when the matter has none or only "Unassigned". */
+      referral_source: string | null
+      /** The opposing party, added as a related contact with the "Opposing Party" status. */
+      opposing_party: { first_name: string; last_name: string } | null
       /** Set only when empty or a bare "IC -". */
       description: string
       checklist_template_id: number
@@ -320,6 +324,23 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
   return out
 }
 
+/**
+ * The Grow marketing source for the booking's referral answer (Acuity's
+ * options; Grow spells a few differently). No answer means Google, as in
+ * Kendra's walkthrough; "N/A" sets nothing.
+ */
+const GROW_SOURCE_NAMES: Record<string, string> = {
+  Rehire: "Self Referral/Re-hire",
+  "Facebook Group": "Facebook Support Group",
+  "ChatGPT/AI": "ChatGPT",
+}
+function growSource(referral: string | null) {
+  const r = referral?.trim()
+  if (!r) return "Google"
+  if (/^n\/?a$/i.test(r)) return null
+  return GROW_SOURCE_NAMES[r] ?? r
+}
+
 /** What the Grow job should make true for this lead, or null when it can't run yet. */
 async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Extract<BotTask, { kind: "grow" }> | null> {
   const grow = growState(rows)
@@ -374,6 +395,9 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
   if (lead.consulting_attorney) fields["Consulting Attorney"] = lead.consulting_attorney
   if (lead.county) fields["County (ALL CAPS)"] = lead.county.toUpperCase()
   if (lead.self_scheduled != null) fields["Self Scheduled?"] = lead.self_scheduled
+  const op = lead.opposing_party_name?.trim() ?? ""
+  const opPerson = Boolean(op) && onePerson(op)
+  if (opPerson) fields["Opposing Party Name"] = op
 
   const ask = {
     matter_id: matterId,
@@ -384,6 +408,8 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
     status: GROW_STATUS,
     status_from: GROW_EARLY_STATUSES,
     fields,
+    referral_source: growSource(lead.referral_source),
+    opposing_party: opPerson ? splitName(op) : null,
     description: matterDescription(lead),
     checklist_template_id: GROW_CHECKLIST.id,
     checklist_title: GROW_CHECKLIST.title,
@@ -416,14 +442,17 @@ async function openLeads(admin: Admin, leadId?: string) {
 }
 
 /** Everything the bot can do now. Empty when every job is off. Each task says whether it's a test run. */
-export async function botTasks(): Promise<{ mode: BotMode; tasks: BotTask[] }> {
+export async function botTasks(): Promise<{ mode: BotMode; tasks: BotTask[]; clio_check: boolean }> {
   const admin = createAdminClient()
   const live = botKinds().map(botModeFor).filter((m) => m !== "off")
   const mode: BotMode = live.includes("on") ? "on" : live.length ? "dry" : "off"
-  if (mode === "off" || !admin) return { mode, tasks: [] }
+  // While a Clio job (text, portal, Grow) is on, live or test, the bot looks at
+  // its Clio sign-in on every run, tasks or not (POST /api/intake/bot/session).
+  const clio_check = botKinds().some((k) => k !== "lexi" && botModeFor(k) !== "off")
+  if (mode === "off" || !admin) return { mode, tasks: [], clio_check }
   const leads = await openLeads(admin)
   await dropMootTexts(admin, leads)
-  return { mode, tasks: await tasksFor(admin, leads) }
+  return { mode, tasks: await tasksFor(admin, leads), clio_check }
 }
 
 /**
@@ -463,6 +492,9 @@ export async function recordBotResult(r: { lead_id: string; kind: BotKind; outco
   if (!admin) throw new Error("SUPABASE_SERVICE_ROLE_KEY missing")
   const note = r.note?.slice(0, 500) ?? null
   const botKey = `bot_${r.kind}`
+  // The bot's Clio sign-in ran out: texts, portals and Grow all wait until
+  // someone signs in again. Test runs too, so a sign-in never ends unnoticed.
+  if (r.kind !== "lexi" && /saved sign-in has run out/i.test(note ?? "")) await alertClioSignInExpired().catch(() => false)
   if (r.kind === "grow" || r.kind === "portal") return recordJobResult(admin, { ...r, kind: r.kind, note })
   if (r.outcome === "paused" || r.outcome === "none" || r.outcome === "sent") {
     const doneKey = r.kind === "lexi" ? "lexi_followups" : "clio_text_sent"
@@ -491,8 +523,6 @@ export async function recordBotResult(r: { lead_id: string; kind: BotKind; outco
     detail: { by: BOT_BY },
     error: note ?? (r.outcome === "needs_staff" ? "The bot left this one for staff." : "The bot couldn't finish this step."),
   })
-  // The bot's Clio sign-in ran out: every text waits until someone signs in again.
-  if (r.kind === "text" && /saved sign-in has run out/i.test(note ?? "")) await alertClioSignInExpired().catch(() => false)
   // A text the bot left for staff (a name or number that doesn't match): tell the team, once per lead.
   if (r.kind === "text" && r.outcome === "needs_staff" && botModeFor("text") === "on")
     await emailTextForStaff(admin, r.lead_id, note ?? "The bot left the confirmation text for staff.").catch(() => false)

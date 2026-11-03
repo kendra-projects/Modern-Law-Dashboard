@@ -37,6 +37,10 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       return "Booking details filled from Acuity"
     case "acuity_canceled":
       return "Booking canceled in Acuity"
+    case "acuity_form_filled":
+      return d.changed?.length ? `Acuity intake form filled in: ${d.changed.join(", ")}` : "Acuity intake form checked: nothing was missing"
+    case "acuity_form_fill":
+      return "Filling in the Acuity intake form failed"
     case "lexi_followups":
       return d.result === "auto"
         ? "Lexi booked it, so LexiDesk stopped the follow-ups itself"

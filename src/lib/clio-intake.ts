@@ -196,7 +196,7 @@ async function clioUserId(name: string | null | undefined): Promise<number | nul
   return (await clioUser(name))?.id ?? null
 }
 
-function splitName(full: string) {
+export function splitName(full: string) {
   const parts = full.trim().split(/\s+/)
   if (parts.length === 1) return { first_name: parts[0], last_name: "" }
   return { first_name: parts.slice(0, -1).join(" "), last_name: parts[parts.length - 1] }
@@ -206,7 +206,7 @@ function splitName(full: string) {
 const NO_OPPOSING = /^(n\/?a|no|none|unknown|-+)$/i
 
 /** One person's full name: two words or more, not a list ("X, and Y") and not "N/A". */
-const onePerson = (name: string) => !NO_OPPOSING.test(name) && name.split(/\s+/).length >= 2 && !/,|\band\b|&/i.test(name)
+export const onePerson = (name: string) => !NO_OPPOSING.test(name) && name.split(/\s+/).length >= 2 && !/,|\band\b|&/i.test(name)
 
 /** The opposing party's Clio contact: the person with exactly this name, or a new one. */
 async function opposingPartyContact(name: string): Promise<number> {
@@ -509,6 +509,8 @@ async function linkOpposingParty(field: ContactCustomField, contactId: number, o
 
 type MatterNow = {
   id: number
+  status?: string | null
+  created_at?: string | null
   practice_area?: { id: number } | null
   originating_attorney?: { id: number } | null
   custom_field_values?: { id: string | number; value?: unknown; custom_field?: { id: number } | null }[] | null
@@ -523,10 +525,13 @@ type MatterNow = {
  * matter, and the client and opposing party named on each other's contact
  * ("Opposing Party" field). Only empty fields are filled: nothing staff or
  * Grow set is changed. An opposing party that isn't one person's full name is
- * reported, not linked.
+ * reported, not linked. The one exception is the status: a consult's matter is
+ * Pending until the client hires the firm (Kendra's walkthrough), so a matter
+ * the convert made Open is set to Pending; one that existed before the booking
+ * (a current client's case) is never touched.
  */
 export async function fillConvertedMatter(lead: IntakeLead, matterId: string, clientContactId: string | null) {
-  const fields = "id,practice_area{id},originating_attorney{id},custom_field_values{id,value,custom_field},relationships{id,description,contact{id}}"
+  const fields = "id,status,created_at,practice_area{id},originating_attorney{id},custom_field_values{id,value,custom_field},relationships{id,description,contact{id}}"
   const { data: m } = await clioFetch<{ data: MatterNow }>(`/api/v4/matters/${matterId}?fields=${encodeURIComponent(fields)}`)
   const changed: string[] = []
   const notes: string[] = []
@@ -562,6 +567,13 @@ export async function fillConvertedMatter(lead: IntakeLead, matterId: string, cl
       patch.originating_attorney = { id }
       changed.push("originating attorney")
     } else notes.push(`No Clio user named "${lead.consulting_attorney}", originating attorney left blank`)
+  }
+
+  // Made by the convert for this booking (not a case from before it): Pending, not Open.
+  const madeForBooking = m.created_at ? new Date(m.created_at).getTime() >= new Date(lead.created_at).getTime() - 60 * 60 * 1000 : false
+  if (m.status === "Open" && madeForBooking) {
+    patch.status = "Pending"
+    changed.push("status Pending")
   }
 
   if (Object.keys(patch).length) {

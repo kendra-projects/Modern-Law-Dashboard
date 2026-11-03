@@ -1,5 +1,6 @@
 import "server-only"
 
+import { acuityFormOn, fillAcuityForm } from "@/lib/acuity-form"
 import { autoAssignAdvocate, syncAdvocateFromGrow } from "@/lib/advocate-auto"
 import { botJobLive } from "@/lib/bot-mode"
 import { consultLocation } from "@/lib/attorney-zoom"
@@ -163,6 +164,17 @@ function fillDue(s: State, matterId: string | null) {
   )
 }
 
+/** A self-scheduled booking's staff intake form in Acuity still needs filling in (once per lead). */
+function acuityFormDue(s: State) {
+  return (
+    acuityFormOn() &&
+    s.lead.self_scheduled === true &&
+    Boolean(s.lead.external_id) &&
+    !s.steps.some((x) => x.step_key === "acuity_form_filled" && x.state === "done") &&
+    !backingOff(s, "acuity_form_fill")
+  )
+}
+
 /** The automation (or Grow) set the advocate after staff had posted the consult in Slack by hand. */
 function advocateNoteDue(s: State) {
   const step = (key: string) => s.steps.find((x) => x.step_key === key)
@@ -180,6 +192,8 @@ function advocateNoteDue(s: State) {
 function workLeft(s: State) {
   const advocate = Boolean(readyAdvocate(s))
   const slack = (advocate && !s.slack && !backingOff(s, "slack_post")) || advocateNoteDue(s)
+  // The Acuity form needs only the clear conflict check, not the matter.
+  if (acuityFormDue(s)) return true
   // With auto matter creation off, a matterless lead waits for the Grow-pushed
   // matter; only the Slack post (which needs no matter) is work the automation
   // can still do.
@@ -262,6 +276,23 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     grow && nameDiffers(lead.client_first, lead.client_last, grow.clientName)
       ? `Clio Grow spells the name "${grow.clientName}"`
       : null
+
+  // ── Self-scheduled: the staff intake form in Acuity (Kendra's walkthrough) ──
+  if (acuityFormDue(s)) {
+    if (dry) done.push("fill in the Acuity intake form")
+    else {
+      try {
+        const r = await fillAcuityForm(admin, lead)
+        await step("acuity_form_filled", "done", { changed: r.changed, notes: r.notes })
+        await clearFailure(admin, lead.id, "acuity_form_fill")
+        if (r.changed.length) done.push(`filled in the Acuity intake form (${r.changed.join(", ")})`)
+      } catch (e) {
+        const msg = why(e, "Acuity didn't take the form answers.")
+        await step("acuity_form_fill", "failed", {}, msg)
+        failed.push(`Acuity intake form: ${msg}`)
+      }
+    }
+  }
 
   // ── Clio contact and matter ──
   let matterId = lead.clio_matter_id

@@ -4,15 +4,18 @@ import { C, SANS, SERIF, SITE, esc } from "@/lib/conflict-email"
 import { mailConfigured, sendMail } from "@/lib/mail"
 import { createAdminClient } from "@/lib/supabase/admin"
 
-// The intake bot sends confirmation texts through a Clio session a person signs
-// in to by hand in the bot's Codespace (`npm run clio-login`, modern-law-bot
-// README). Each sign-in is a commit on the bot repo's `clio-session` branch,
-// and Clio ends the session after about 30 days. The developer, not the firm,
-// gets an email 25 days after the last sign-in (CLIO_SIGNIN_REMIND_DAYS), and
-// right away if the bot finds the session already ran out, both with the steps
-// to sign in again. Each goes once per sign-in (table bot_alerts).
+// The intake bot's Clio jobs (confirmation texts, client portals, Grow) run on a
+// Clio session a person signs in to by hand in the bot's Codespace (`npm run
+// clio-login`, modern-law-bot README). Each sign-in is a commit on the bot
+// repo's `clio-session` branch. Clio says it ends the session after about 30
+// days, but it can end it much sooner (one sign-in on 27 Oct 2026 ended within
+// three hours), so the bot also looks at the sign-in on every run. The
+// developer, not the firm, gets an email 25 days after the last sign-in
+// (CLIO_SIGNIN_REMIND_DAYS), and right away when the bot finds the session has
+// ended (a Clio job or the bot's check), both with the steps to sign in again.
+// Each goes once per sign-in (table bot_alerts).
 
-const BOT_REPO = () => process.env.BOT_REPO?.trim() || "abdulqayyum3116-art/modern-law-bot"
+const BOT_REPO = () => process.env.BOT_REPO?.trim() || "kendra-projects/modern-law-bot"
 export const botAlertTo = () => process.env.BOT_ALERT_EMAIL?.trim() || "abdulqayyum3116@gmail.com"
 // The Codespace itself (github.dev opens it, starting it if stopped). GitHub
 // deletes a Codespace left unused for about 30 days, so the email keeps the
@@ -55,7 +58,7 @@ export function signInEmail(kind: Kind, signedIn: Date) {
     ? "Action needed: the intake bot's Clio sign-in ran out"
     : `Reminder: sign the intake bot in to Clio again by ${day(endsBy)}`
   const summary = expired
-    ? `The bot found its Clio sign-in has ended (last signed in ${day(signedIn)}). Confirmation texts are on hold until someone signs in again; the waiting ones go out within the hour after.`
+    ? `The bot found its Clio sign-in has ended (last signed in ${day(signedIn)}). Its Clio work (confirmation texts, client portals, Grow) is on hold until someone signs in again; what is waiting goes ahead within the hour after.`
     : `The bot last signed in to Clio on ${day(signedIn)}, ${days} days ago. Clio ends the sign-in after about ${SESSION_DAYS} days, around ${day(endsBy)}, and then confirmation texts stop. Sign in again before then.`
   const steps = [
     `Click <b>Open the Codespace</b> above (it starts if it was stopped). If the link doesn't open it: <a href="${codespaces}" style="color:${C.primary}">github.com/codespaces</a> → the modern-law-bot Codespace, or if there is none, the <a href="${repo}" style="color:${C.primary}">bot repo</a> → Code → Codespaces → Create codespace on main.`,
@@ -78,7 +81,7 @@ export function signInEmail(kind: Kind, signedIn: Date) {
   const button = (href: string, text: string, primary: boolean) =>
     `<td style="border-radius:8px;${primary ? `background:${C.primary}` : `border:1px solid ${C.border}`}">` +
     `<a href="${esc(href)}" style="display:inline-block;padding:12px 22px;font:700 14px ${SANS};color:${primary ? C.onPrimary : C.ink};text-decoration:none;border-radius:8px">${text}</a></td>`
-  const badge = expired ? { text: "Texts on hold", fg: C.danger, bg: C.dangerSoft } : { text: `${days} days since sign-in`, fg: C.warning, bg: C.warningSoft }
+  const badge = expired ? { text: "Clio jobs on hold", fg: C.danger, bg: C.dangerSoft } : { text: `${days} days since sign-in`, fg: C.warning, bg: C.warningSoft }
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark">
