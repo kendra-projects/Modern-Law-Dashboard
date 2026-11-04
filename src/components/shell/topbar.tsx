@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Menu, LogOut, ShieldCheck, LayoutGrid } from "lucide-react"
+import { Menu, LogOut, ShieldCheck, LayoutGrid, Users } from "lucide-react"
 import { visibleNav, workspaceForPath, type NavItem, type Workspace } from "./nav-items"
 import { WorkspaceSwitch } from "./workspace-switch"
 import { chooseWorkspaceAgain } from "@/app/actions/workspace"
@@ -44,11 +44,11 @@ function currentTitle(pathname: string, items: NavItem[]) {
   return match?.label ?? "Dashboard"
 }
 
-export function Topbar({ email, role, workspace }: { email: string; role: Role; workspace: Workspace | null }) {
+export function Topbar({ email, role, workspace, mainLogin }: { email: string; role: Role; workspace: Workspace | null; mainLogin: boolean }) {
   const pathname = usePathname()
   const [open, setOpen] = React.useState(false)
   const ws = role === "admin" ? workspaceForPath(pathname, workspace) : null
-  const items = visibleNav(role, ws)
+  const items = visibleNav(role, ws, mainLogin)
   const current = [...items]
     .filter((i) =>
       i.href === "/" ? pathname === "/" : pathname === i.href || pathname.startsWith(i.href + "/")
@@ -153,6 +153,17 @@ export function Topbar({ email, role, workspace }: { email: string; role: Role; 
                     </DropdownMenuItem>
                   </button>
                 </form>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            {mainLogin && (
+              <>
+                <DropdownMenuItem asChild>
+                  <Link href="/members">
+                    <Users className="h-4 w-4" />
+                    Members
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
             )}

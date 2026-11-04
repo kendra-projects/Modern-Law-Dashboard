@@ -5,7 +5,7 @@ import type { Database } from "@/types/database"
 // `/api/make-health` is reachable unauthenticated so a scheduler (Vercel Cron
 // or any external cron) is not redirected to /login. The route handler itself
 // is the gate: it requires CRON_SECRET, or a signed-in user.
-const PUBLIC_ROUTES = ["/login", "/auth", "/api/make-health", "/api/intake"]
+const PUBLIC_ROUTES = ["/login", "/auth", "/invite", "/api/make-health", "/api/intake"]
 
 /**
  * Refreshes the Supabase session on every request and enforces route

@@ -26,12 +26,12 @@ function activeHref(pathname: string, items: { href: string }[]): string | undef
     .sort((a, b) => b.href.length - a.href.length)[0]?.href
 }
 
-export function Sidebar({ role, workspace }: { role: Role; workspace: Workspace | null }) {
+export function Sidebar({ role, workspace, mainLogin }: { role: Role; workspace: Workspace | null; mainLogin: boolean }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
   // Admin works in one workspace at a time; the page itself decides which.
   const ws = role === "admin" ? workspaceForPath(pathname, workspace) : null
-  const items = visibleNav(role, ws)
+  const items = visibleNav(role, ws, mainLogin)
   const current = activeHref(pathname, items)
 
   return (

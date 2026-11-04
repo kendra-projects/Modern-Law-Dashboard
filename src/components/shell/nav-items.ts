@@ -10,6 +10,7 @@ import {
   Inbox,
   Settings,
   CalendarDays,
+  History,
   type LucideIcon,
 } from "lucide-react"
 import type { Role } from "@/types/database"
@@ -21,6 +22,8 @@ export interface NavItem {
   description: string
   /** Which section this belongs to. Undefined = shown to everyone (e.g. Overview). */
   section?: "content" | "intake"
+  /** Only for the three main logins (lib/member-rules.ts). */
+  mainOnly?: boolean
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -117,17 +120,25 @@ export const NAV_ITEMS: NavItem[] = [
     description: "System health",
     section: "content",
   },
+  {
+    href: "/login-history",
+    label: "Login History",
+    icon: History,
+    description: "Who opened the dashboard",
+    mainOnly: true,
+  },
 ]
 
 export type Workspace = "content" | "intake"
 
 /**
  * Which workspace a page belongs to. /intake pages are Intake, the home page
- * belongs to whichever workspace is chosen, everything else is Content.
+ * and the team pages belong to whichever workspace is chosen, everything else
+ * is Content.
  */
 export function workspaceForPath(pathname: string, chosen: Workspace | null): Workspace | null {
   if (pathname === "/intake" || pathname.startsWith("/intake/")) return "intake"
-  if (pathname === "/") return chosen
+  if (pathname === "/" || pathname === "/members" || pathname === "/login-history") return chosen
   return "content"
 }
 
@@ -136,8 +147,9 @@ export function workspaceForPath(pathname: string, chosen: Workspace | null): Wo
  * Overview. admin = the workspace it is in (Content or Intake), switchable;
  * with no workspace picked yet, just Overview (which shows the picker).
  */
-export function visibleNav(role: Role, workspace: Workspace | null = null): NavItem[] {
+export function visibleNav(role: Role, workspace: Workspace | null = null, mainLogin = false): NavItem[] {
   const section = role === "admin" ? workspace : role
-  if (!section) return NAV_ITEMS.filter((i) => !i.section)
-  return NAV_ITEMS.filter((i) => !i.section || i.section === section)
+  const allowed = NAV_ITEMS.filter((i) => !i.mainOnly || mainLogin)
+  if (!section) return allowed.filter((i) => !i.section)
+  return allowed.filter((i) => !i.section || i.section === section)
 }

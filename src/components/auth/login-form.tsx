@@ -6,6 +6,7 @@ import { Loader2, LockKeyhole, ShieldCheck } from "lucide-react"
 import { signIn } from "@/app/login/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/auth/password-input"
 import { Label } from "@/components/ui/label"
 
 function SubmitButton() {
@@ -45,10 +46,9 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="password">Password</Label>
-        <Input
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           autoComplete="current-password"
           placeholder="••••••••••••"
           required

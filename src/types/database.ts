@@ -570,6 +570,59 @@ export type Database = {
         }
         Relationships: []
       }
+      member_invites: {
+        Row: {
+          id: string
+          token_hash: string
+          email: string
+          full_name: string
+          role: string
+          invited_by: string
+          status: string
+          expires_at: string
+          responded_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          token_hash: string
+          email: string
+          full_name: string
+          role: string
+          invited_by: string
+          status?: string
+          expires_at: string
+          responded_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          status?: string
+          responded_at?: string | null
+        }
+        Relationships: []
+      }
+      login_events: {
+        Row: {
+          id: string
+          user_id: string
+          email: string
+          full_name: string | null
+          role: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          email: string
+          full_name?: string | null
+          role: string
+          created_at?: string
+        }
+        Update: {
+          full_name?: string | null
+        }
+        Relationships: []
+      }
       bot_alerts: {
         Row: {
           id: string

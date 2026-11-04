@@ -3,11 +3,13 @@ import { Sidebar } from "@/components/shell/sidebar"
 import { Topbar } from "@/components/shell/topbar"
 import { ScenarioStrip } from "@/components/shell/scenario-strip"
 import { AutoRefresh } from "@/components/shell/auto-refresh"
+import { DashboardOpenPing } from "@/components/shell/dashboard-open-ping"
 import { MakeHealthSync } from "@/components/shell/make-health-sync"
 import { NavSignalsProvider } from "@/components/shell/nav-signals"
 import { getNavSignals } from "@/lib/signals"
 import { getRole, getCurrentUser } from "@/lib/role"
 import { getWorkspace } from "@/lib/workspace"
+import { isMainLogin } from "@/lib/member-rules"
 
 export default async function DashboardLayout({
   children,
@@ -26,15 +28,17 @@ export default async function DashboardLayout({
   // *components* (functions), which are not serializable as client props.
   // Independent, so fetched together.
   const [signals, role] = await Promise.all([getNavSignals(), getRole()])
+  const mainLogin = isMainLogin(user.email)
 
   return (
     <NavSignalsProvider signals={signals}>
       <div className="flex min-h-screen bg-background">
         <AutoRefresh />
+        <DashboardOpenPing />
         <MakeHealthSync />
-        <Sidebar role={role} workspace={getWorkspace()} />
+        <Sidebar role={role} workspace={getWorkspace()} mainLogin={mainLogin} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar email={user.email ?? "admin@modernlaw.app"} role={role} workspace={getWorkspace()} />
+          <Topbar email={user.email ?? "admin@modernlaw.app"} role={role} workspace={getWorkspace()} mainLogin={mainLogin} />
           <ScenarioStrip />
           <main className="flex-1 p-4 sm:p-6">
             <div className="mx-auto w-full max-w-[1400px] animate-fade-up">
