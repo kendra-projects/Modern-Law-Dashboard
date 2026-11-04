@@ -179,7 +179,7 @@ function acuityFormDue(s: State) {
 /** The client still has to be checked as a guest on the consult's calendar event (once per lead). */
 function calendarGuestDue(s: State) {
   return (
-    calendarGuestOn() &&
+    calendarGuestOn(s.lead.created_at) &&
     s.lead.conflict_status === "clear" &&
     Boolean(s.lead.external_id && s.lead.email && s.lead.consult_datetime) &&
     new Date(s.lead.consult_datetime!).getTime() > Date.now() &&
@@ -315,6 +315,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
       try {
         const r = await addCalendarGuest(lead)
         if (r === "none") throw new Error("The consult's event wasn't found on the attorney's Google calendar.")
+        if (r === "others") throw new Error("The consult's event has other guests, so add the client by hand.")
         await step("calendar_guest", "done", { result: r })
         await clearFailure(admin, lead.id, "calendar_guest_failed")
         if (r === "added") done.push("added the client to the calendar event")

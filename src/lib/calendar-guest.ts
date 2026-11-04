@@ -7,14 +7,20 @@ import type { IntakeLead } from "@/types/database"
 // and add the client as a guest if they aren't one. Acuity puts the event on the
 // attorney's own calendar (its calendar's first email), with the client's email in
 // the description. The Make scenario "Lead Intake Calendar" finds that event and
-// adds the guest. Off until CALENDAR_GUEST_WEBHOOK_URL is set.
+// adds the guest. An event that already has other guests is left for staff, because
+// rewriting its guest list could reset their answers. Off until
+// CALENDAR_GUEST_WEBHOOK_URL and CALENDAR_GUEST_FROM are set; only bookings made from
+// that time on are touched, so no older client gets a surprise invite.
 
-export const calendarGuestOn = () => Boolean(process.env.CALENDAR_GUEST_WEBHOOK_URL?.trim())
+export function calendarGuestOn(createdAt: string) {
+  const from = process.env.CALENDAR_GUEST_FROM?.trim()
+  return Boolean(process.env.CALENDAR_GUEST_WEBHOOK_URL?.trim() && from) && new Date(createdAt) >= new Date(from!)
+}
 
 type Lead = Pick<IntakeLead, "external_id" | "email" | "consult_datetime">
 
-/** Add the client to the consult's event. "none" when the event isn't on the calendar. */
-export async function addCalendarGuest(lead: Lead): Promise<"added" | "already" | "none"> {
+/** Add the client to the consult's event. "none": no such event; "others": it has other guests. */
+export async function addCalendarGuest(lead: Lead): Promise<"added" | "already" | "others" | "none"> {
   const appt = await fetchAcuityAppointment(lead.external_id!)
   if (!appt?.calendarID) throw new Error("Couldn't read the Acuity appointment.")
   const auth = Buffer.from(`${process.env.ACUITY_USER_ID}:${process.env.ACUITY_API_KEY}`).toString("base64")
@@ -42,5 +48,5 @@ export async function addCalendarGuest(lead: Lead): Promise<"added" | "already" 
   })
   const answer = (await hook.text()).trim().slice(0, 200)
   if (!hook.ok) throw new Error(`Make's calendar scenario failed (${hook.status} ${answer}).`)
-  return answer === "added" || answer === "already" ? answer : "none"
+  return answer === "added" || answer === "already" || answer === "others" ? answer : "none"
 }
