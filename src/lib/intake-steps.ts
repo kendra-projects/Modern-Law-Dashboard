@@ -37,6 +37,10 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
       return "Booking details filled from Acuity"
     case "acuity_canceled":
       return "Booking canceled in Acuity"
+    case "calendar_guest":
+      return d.result === "added" ? "Client added as a guest on the calendar event" : "Client already a guest on the calendar event"
+    case "calendar_guest_failed":
+      return "Adding the client to the calendar event failed"
     case "acuity_form_filled":
       return d.changed?.length ? `Acuity intake form filled in: ${d.changed.join(", ")}` : "Acuity intake form checked: nothing was missing"
     case "acuity_form_fill":

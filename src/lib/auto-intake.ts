@@ -1,6 +1,7 @@
 import "server-only"
 
 import { acuityFormOn, fillAcuityForm } from "@/lib/acuity-form"
+import { addCalendarGuest, calendarGuestOn } from "@/lib/calendar-guest"
 import { autoAssignAdvocate, syncAdvocateFromGrow } from "@/lib/advocate-auto"
 import { botJobLive } from "@/lib/bot-mode"
 import { consultLocation } from "@/lib/attorney-zoom"
@@ -175,6 +176,18 @@ function acuityFormDue(s: State) {
   )
 }
 
+/** The client still has to be checked as a guest on the consult's calendar event (once per lead). */
+function calendarGuestDue(s: State) {
+  return (
+    calendarGuestOn() &&
+    s.lead.conflict_status === "clear" &&
+    Boolean(s.lead.external_id && s.lead.email && s.lead.consult_datetime) &&
+    new Date(s.lead.consult_datetime!).getTime() > Date.now() &&
+    !s.steps.some((x) => x.step_key === "calendar_guest" && x.state === "done") &&
+    !backingOff(s, "calendar_guest_failed")
+  )
+}
+
 /** The automation (or Grow) set the advocate after staff had posted the consult in Slack by hand. */
 function advocateNoteDue(s: State) {
   const step = (key: string) => s.steps.find((x) => x.step_key === key)
@@ -194,6 +207,7 @@ function workLeft(s: State) {
   const slack = (advocate && !s.slack && !backingOff(s, "slack_post")) || advocateNoteDue(s)
   // The Acuity form needs only the clear conflict check, not the matter.
   if (acuityFormDue(s)) return true
+  if (calendarGuestDue(s)) return true
   // With auto matter creation off, a matterless lead waits for the Grow-pushed
   // matter; only the Slack post (which needs no matter) is work the automation
   // can still do.
@@ -290,6 +304,24 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
         const msg = why(e, "Acuity didn't take the form answers.")
         await step("acuity_form_fill", "failed", {}, msg)
         failed.push(`Acuity intake form: ${msg}`)
+      }
+    }
+  }
+
+  // ── The client as a guest on the attorney's calendar event (Kendra's walkthrough) ──
+  if (calendarGuestDue(s)) {
+    if (dry) done.push("add the client to the calendar event")
+    else {
+      try {
+        const r = await addCalendarGuest(lead)
+        if (r === "none") throw new Error("The consult's event wasn't found on the attorney's Google calendar.")
+        await step("calendar_guest", "done", { result: r })
+        await clearFailure(admin, lead.id, "calendar_guest_failed")
+        if (r === "added") done.push("added the client to the calendar event")
+      } catch (e) {
+        const msg = why(e, "The client couldn't be added to the calendar event.")
+        await step("calendar_guest_failed", "failed", {}, msg)
+        failed.push(`Calendar guest: ${msg}`)
       }
     }
   }
