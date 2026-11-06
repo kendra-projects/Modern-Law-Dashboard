@@ -192,14 +192,10 @@ function sigSettled(steps: Steps, kind: "grow" | "portal", sig: string, dry: boo
 }
 
 // The firm's Grow setup (checked 26 Oct 2026, claude-history/notes/bot-recon-2026-10-26.md).
+// The firm renamed its Grow statuses by 3 Nov 2026 (same id 1123106): names checked 6 Nov 2026.
 const GROW_CHECKLIST = { id: 231446, title: "Standard Consult Scheduled Checklist" }
-const GROW_STATUS = "Consult Scheduled (Appointment Scheduled)"
-const GROW_EARLY_STATUSES = [
-  "Newly Added, Not Yet Qualified",
-  "In Process",
-  "Qualified - Awaiting Conflict Check",
-  "Conflict Check Cleared - Awaiting Scheduling",
-]
+const GROW_STATUS = "Consult Scheduled"
+const GROW_EARLY_STATUSES = ["New Lead", "Book Consult"]
 const BILLING = "Billing Department"
 // A booking's Grow matter can take a few minutes to appear (LexiDesk, staff): wait before making one.
 const CREATE_AFTER = 15 * 60 * 1000

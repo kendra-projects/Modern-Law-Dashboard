@@ -502,7 +502,8 @@ async function linkOpposingParty(field: ContactCustomField, contactId: number, o
   const value = field.field_type.toLowerCase() === "contact" ? other.id : other.name
   await clioFetch(`/api/v4/contacts/${contactId}?fields=id`, {
     method: "PATCH",
-    body: JSON.stringify({ data: { custom_field_values: [current ? { id: current.id, value } : { custom_field: { id: field.id }, value }] } }),
+    // Clio wants custom_field.id even when updating a value that already exists (422 otherwise, seen Nov 2026).
+    body: JSON.stringify({ data: { custom_field_values: [{ ...(current && { id: current.id }), custom_field: { id: field.id }, value }] } }),
   })
   return true
 }
@@ -544,7 +545,7 @@ export async function fillConvertedMatter(lead: IntakeLead, matterId: string, cl
     const current = (m.custom_field_values ?? []).find((c) => c.custom_field?.id === opField.id)
     if (!current || current.value == null || String(current.value).trim() === "") {
       const value = !op || NO_OPPOSING.test(op) ? "N/A" : op
-      patch.custom_field_values = [current ? { id: current.id, value } : { custom_field: { id: opField.id }, value }]
+      patch.custom_field_values = [{ ...(current && { id: current.id }), custom_field: { id: opField.id }, value }]
       changed.push("Opposing Party Name")
     }
   }
