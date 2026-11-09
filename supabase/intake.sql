@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS public.intake_leads (
   recording_url       text,
   -- people
   consulting_attorney text,
-  assigned_advocate   text,                         -- Shane | Mandie | Mia | NULL
+  assigned_advocate   text,                         -- one of ADVOCATES in src/lib/intake.ts, or NULL
   -- clio ids
   clio_matter_id      text,
   clio_client_contact_id text,

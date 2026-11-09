@@ -132,7 +132,7 @@ function inScope(lead: IntakeLead) {
   )
 }
 
-/** The advocate's Clio name, only for the four real advocates. */
+/** The advocate's Clio name, only for the real advocates. */
 const advocateOf = (lead: IntakeLead) =>
   lead.assigned_advocate ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate] ?? null : null
 
