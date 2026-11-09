@@ -40,7 +40,7 @@ export const ACUITY_FIELD_TO_COLUMN: Record<number, string> = {
   12016728: "referral_source", // "Referral Source" (staff copy)
   12016776: "matter_type", // "Type of matter?"
   16141672: "opposing_party_name", // "Opposing Party Name" (staff copy)
-  12016778: "conflict_status", // "Conflict Check Completed?" (yes/no → clear/pending)
+  12016778: "conflict_status", // "Conflict Check Completed?" (kept for reference only; never sets the check)
   12016790: "priority_score", // "On a Scale of 1-5 rate the lead"
   12016798: "qualified", // "Is this a qualified lead?" (yes/no)
   // Lexidesk Internal Form (system) — kept for traceability, stored in raw_payload

@@ -5,7 +5,7 @@ import { pickAdvocate } from "@/lib/advocate-auto"
 import { botKinds, botModeFor, type BotKind, type BotMode } from "@/lib/bot-mode"
 import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } from "@/lib/clio-intake"
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
-import { cannotAutoClear, savedSearch } from "@/lib/conflict-search"
+import { cannotAutoClear, conflictAutoOn, fresh, savedSearch } from "@/lib/conflict-search"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
@@ -347,7 +347,12 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
 
   const done = (key: string) => rows.some((s) => s.step_key === key && s.state === "done")
   const search = savedSearch(rows)
-  const conflictClean = lead.conflict_status === "clear" || (lead.conflict_status === "pending" && Boolean(search) && !cannotAutoClear(search!))
+  // Converting to Clio Manage needs a clear check, or (with CONFLICT_AUTO on) a
+  // clean search run for the lead as it is now. A flagged match, an error or a
+  // search from before a name changed waits for staff.
+  const conflictClean =
+    lead.conflict_status === "clear" ||
+    (conflictAutoOn() && lead.conflict_status === "pending" && fresh(search, lead) && !cannotAutoClear(search!))
   const advocate = isAdvocate(lead.assigned_advocate) ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate!] : null
 
   let create: Extract<BotTask, { kind: "grow" }>["create"] = null

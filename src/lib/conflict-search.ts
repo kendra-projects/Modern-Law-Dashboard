@@ -274,7 +274,8 @@ export async function searchConflicts(lead: Lead): Promise<ConflictSearch> {
 }
 
 /** The saved search, when it still fits the lead as it is now. */
-function fresh(saved: ConflictSearch | null, lead: Lead) {
+/** The saved search was run for this lead as it is now (same names and Clio records, within 12 hours). */
+export function fresh(saved: ConflictSearch | null, lead: Lead) {
   if (!saved) return false
   return (
     saved.client === fullName(lead) &&

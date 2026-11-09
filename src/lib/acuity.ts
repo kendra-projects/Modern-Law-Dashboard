@@ -5,7 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import type { Json } from "@/types/database"
 import {
   ACUITY_FIELD_TO_COLUMN,
-  conflictFromYesNo,
   yesNoToBool,
 } from "@/lib/acuity-map"
 
@@ -124,7 +123,12 @@ export function mapAppointmentToLead(a: AcuityAppointment) {
     for (const v of form.values ?? []) {
       const col = ACUITY_FIELD_TO_COLUMN[v.fieldID]
       if (!col || v.value == null || v.value === "") continue
-      if (col === "conflict_status") patch.conflict_status = conflictFromYesNo(v.value)
+      // Never decides the conflict check. Clio is the source of truth: the
+      // check clears only on the lead page or from a clean conflict search
+      // (lib/conflict-search.ts), and Acuity's answer follows from that
+      // (lib/acuity-form.ts). Taking Acuity's "Yes" as a clear let it release
+      // a lead whose search had flagged a match nobody had looked at.
+      if (col === "conflict_status") extras.acuity_conflict_answer = v.value
       else if (col === "qualified") patch.qualified = yesNoToBool(v.value)
       else if (col === "priority_score") {
         const n = parseInt(v.value, 10)
