@@ -7,6 +7,7 @@ import { IntakeOverview, type OverviewAppt } from "@/components/intake/intake-ov
 import type { IntakeLead } from "@/types/database"
 import { getOverviewData } from "@/lib/queries"
 import { growMatterLeads } from "@/lib/grow-ready-server"
+import { leadsOnHold } from "@/lib/safety-hold"
 import {
   buildDaySeries,
   computeKpis,
@@ -66,6 +67,7 @@ async function IntakeOverviewSection() {
         leads={rows}
         appts={(appts ?? []) as unknown as OverviewAppt[]}
         growMatter={await growMatterLeads(supabase, rows)}
+        onHold={Array.from(await leadsOnHold(supabase, rows.map((l) => l.id)))}
       />
     </>
   )

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { IntakeClient } from "@/components/intake/intake-client"
 import { growMatterLeads } from "@/lib/grow-ready-server"
+import { leadsOnHold } from "@/lib/safety-hold"
 import type { IntakeLead } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -14,5 +15,6 @@ export default async function IntakePage() {
     .limit(200)
 
   const leads = (data ?? []) as unknown as IntakeLead[]
-  return <IntakeClient leads={leads} growMatter={await growMatterLeads(supabase, leads)} />
+  const [growMatter, held] = await Promise.all([growMatterLeads(supabase, leads), leadsOnHold(supabase, leads.map((l) => l.id))])
+  return <IntakeClient leads={leads} growMatter={growMatter} onHold={Array.from(held)} />
 }

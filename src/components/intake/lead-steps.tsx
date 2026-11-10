@@ -566,17 +566,21 @@ export function TextStep({
   sent,
   textsUrl,
   zoomFrom,
+  hold = null,
 }: {
   leadId: string
   text: string | null
   missing: string[]
   sent: boolean
+  /** Set while a safety hold is on: the text is hidden so nobody sends it. */
+  hold?: string | null
   /** The matter's Communications, Text messages tab in Clio. */
   textsUrl: string | null
   /** The attorney whose usual Zoom room filled in a link the booking didn't have. */
   zoomFrom?: string | null
 }) {
   const { pending, run, note } = useAction()
+  if (hold && !sent) return <p className="text-xs font-medium text-destructive">{hold} Don&apos;t text them.</p>
   if (!text) return <Hint>Needs: {missing.join(", ")}.</Hint>
   return (
     <div className="space-y-3">

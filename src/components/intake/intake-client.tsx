@@ -74,7 +74,8 @@ function fmtDate(iso: string | null) {
   })
 }
 
-export function IntakeClient({ leads, growMatter }: { leads: IntakeLead[]; growMatter: string[] }) {
+export function IntakeClient({ leads, growMatter, onHold = [] }: { leads: IntakeLead[]; growMatter: string[]; onHold?: string[] }) {
+  const held = new Set(onHold)
   const pending = leads.filter((l) =>
     ["conflict_pending", "slack_pending"].includes(l.status)
   ).length
@@ -211,6 +212,9 @@ export function IntakeClient({ leads, growMatter }: { leads: IntakeLead[]; growM
                         <span className="truncate font-medium text-foreground">
                           {fullName(l)}
                         </span>
+                        {held.has(l.id) && (
+                          <span className="ml-2 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">Safety hold</span>
+                        )}
                         <span className="block truncate text-xs text-muted-foreground">
                           {l.matter_type ?? l.email ?? l.phone ?? "—"}
                         </span>

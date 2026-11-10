@@ -6,6 +6,7 @@ import { botKinds, botModeFor, type BotKind, type BotMode } from "@/lib/bot-mode
 import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } from "@/lib/clio-intake"
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { cannotAutoClear, conflictAutoOn, fresh, savedSearch } from "@/lib/conflict-search"
+import { safetyHold } from "@/lib/safety-hold"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
@@ -243,6 +244,10 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     ) {
       out.push({ kind: "lexi", lead_id: lead.id, client, phone: lead.phone, email: lead.email, dry: botModeFor("lexi") === "dry" })
     }
+
+    // A safety hold (lib/safety-hold.ts): pausing Lexi above stops contact, so it
+    // still runs; the text, the Grow card and the portal don't.
+    if (safetyHold(rows)) continue
 
     // The text needs what the lead page needs before Send: the conflict clear,
     // the advocate who signs it, the matter it is sent from, a consult still

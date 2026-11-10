@@ -103,8 +103,9 @@ function ListTitle({ children, count }: { children: React.ReactNode; count: numb
   )
 }
 
-function needsAttention(l: IntakeLead, hasGrowMatter: boolean): Attention | null {
+function needsAttention(l: IntakeLead, hasGrowMatter: boolean, held: boolean): Attention | null {
   if (CLOSED.includes(l.status)) return null
+  if (held) return { lead: l, reason: "Safety hold", tone: "bg-destructive/15 text-destructive" }
   if (l.conflict_status === "pending") return { lead: l, reason: "Conflict check", tone: "bg-accent/15 text-accent" }
   // The matter is made in Clio Grow and converted to Manage (lib/grow-ready.ts).
   const next = growNext(l, hasGrowMatter)
@@ -113,7 +114,17 @@ function needsAttention(l: IntakeLead, hasGrowMatter: boolean): Attention | null
   return { lead: l, reason: "Sign-off", tone: "bg-success/15 text-success" }
 }
 
-export function IntakeOverview({ leads, appts, growMatter }: { leads: IntakeLead[]; appts: OverviewAppt[]; growMatter: string[] }) {
+export function IntakeOverview({
+  leads,
+  appts,
+  growMatter,
+  onHold = [],
+}: {
+  leads: IntakeLead[]
+  appts: OverviewAppt[]
+  growMatter: string[]
+  onHold?: string[]
+}) {
   const c = useChartColors()
   // Theme colours, so the charts follow Light / Dark / Evening like the rest.
   const tone = {
@@ -175,7 +186,8 @@ export function IntakeOverview({ leads, appts, growMatter }: { leads: IntakeLead
     ]
 
     const hasGrow = new Set(growMatter)
-    const attention = leads.map((l) => needsAttention(l, hasGrow.has(l.id))).filter((x): x is Attention => Boolean(x))
+    const held = new Set(onHold)
+    const attention = leads.map((l) => needsAttention(l, hasGrow.has(l.id), held.has(l.id))).filter((x): x is Attention => Boolean(x))
     const todays = active.filter((a) => a.is_consult && dayKey(a.datetime!) === today)
     // Collapsed, the list shows what's still ahead today; once the day is over,
     // the last few.
@@ -200,7 +212,7 @@ export function IntakeOverview({ leads, appts, growMatter }: { leads: IntakeLead
       leadById,
       recent: leads.slice(0, RECENT_MAX),
     }
-  }, [leads, appts, growMatter, tone.new, tone.clio, tone.done, tone.stopped, tone.canceled])
+  }, [leads, appts, growMatter, onHold, tone.new, tone.clio, tone.done, tone.stopped, tone.canceled])
 
   const SERIES = [
     { key: "Consults", id: "consults", color: c.primary },

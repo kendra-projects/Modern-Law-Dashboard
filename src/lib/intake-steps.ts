@@ -29,6 +29,10 @@ export type StepDetail = {
 }
 
 export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail">): string {
+  if (s.step_key === "safety_hold") {
+    const h = (s.detail ?? {}) as { reason?: string | null }
+    return s.state === "done" ? `Safety hold on: do not contact the client${h.reason ? ` (${h.reason})` : ""}` : "Safety hold released"
+  }
   // A failure staff dismissed from Intake Recovery still reads as the failure.
   if (s.state === "skipped") return `${describeStep({ ...s, state: "failed" })} (dismissed)`
   const d = (s.detail ?? {}) as StepDetail

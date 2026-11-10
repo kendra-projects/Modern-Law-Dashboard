@@ -25,6 +25,7 @@ import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
+import { onSafetyHold, safetyHold } from "@/lib/safety-hold"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -249,6 +250,8 @@ export async function runAutoIntake(leadId: string): Promise<AutoIntakeResult | 
 
   let first = await load(admin, leadId)
   if (!first || !inScope(first.lead)) return null
+  // A safety hold stops every step, the advocate pick included (lib/safety-hold.ts).
+  if (safetyHold(first.steps)) return null
   if (mode === "on") {
     const changed = advocateFromGrow()
       ? await syncAdvocateFromGrow(admin, first.lead).catch(() => false)
@@ -262,7 +265,7 @@ export async function runAutoIntake(leadId: string): Promise<AutoIntakeResult | 
     // What staff already did straight in Clio or Slack counts first.
     await Promise.all([syncLeadFromClio(first.lead).catch(() => []), syncSlackPosts([first.lead]).catch(() => [])])
     const s = await load(admin, leadId)
-    if (!s || !inScope(s.lead)) return null
+    if (!s || !inScope(s.lead) || safetyHold(s.steps)) return null
     return await work(admin, s, mode)
   } finally {
     await admin.from("intake_steps").delete().eq("lead_id", leadId).eq("step_key", LOCK)
@@ -311,6 +314,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   // ── The client as a guest on the attorney's calendar event (Kendra's walkthrough) ──
   if (calendarGuestDue(s)) {
     if (dry) done.push("add the client to the calendar event")
+    else if (await onSafetyHold(admin, lead.id)) waiting.push("Calendar invite: safety hold is on")
     else {
       try {
         const r = await addCalendarGuest(lead)
@@ -422,6 +426,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else if (nameIssue) waiting.push(`Portal invite: ${nameIssue}`)
     else if (backingOff(s, "clio_portal")) waiting.push("Portal invite: tries again an hour after the last error")
     else if (dry) done.push("send the portal invite")
+    else if (await onSafetyHold(admin, lead.id)) waiting.push("Portal invite: safety hold is on")
     else {
       try {
         const r = await sendClioPortalInvite({

@@ -17,6 +17,7 @@ import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake
 import { wakeBotFor } from "@/lib/bot"
 import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/conflict-search"
 import { conflictSearchLine } from "@/lib/intake-steps"
+import { onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -147,6 +148,33 @@ export async function reopenConflict(leadId: string): Promise<ActionResult> {
   return { ok: true, message: "Conflict check reopened — decide again below." }
 }
 
+/**
+ * Safety hold (lib/safety-hold.ts): on, nothing automated contacts the client;
+ * off, the automation carries on with the next sync. Only a person turns it off.
+ */
+export async function setSafetyHold(leadId: string, on: boolean, reason?: string): Promise<ActionResult> {
+  const { supabase, user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+
+  const by = user.email ?? user.id
+  const at = new Date().toISOString()
+  const { error } = await logStep(supabase, {
+    lead_id: leadId,
+    step_key: SAFETY_HOLD,
+    state: on ? "done" : "skipped",
+    detail: on ? { by, reason: reason?.trim() || null, at } : { by, released_at: at },
+  })
+  if (error) return { ok: false, message: on ? "Could not turn the safety hold on. Try again." : "Could not release the safety hold." }
+
+  revalidatePath(`/intake/${leadId}`)
+  revalidatePath("/intake")
+  revalidatePath("/")
+  return on
+    ? { ok: true, message: "Safety hold on. Nothing automated will contact this client." }
+    : { ok: true, message: "Safety hold released. The automation carries on with the next sync." }
+}
+
 /** Assign the lead to an advocate. Human choice; no API involved. */
 export async function assignAdvocate(
   leadId: string,
@@ -260,6 +288,7 @@ export async function sendPortalInvite(leadId: string): Promise<ActionResult> {
   if (["canceled", "stopped", "failed"].includes(lead.status)) return { ok: false, message: `This lead is ${lead.status}.` }
   if (lead.conflict_status !== "clear") return { ok: false, message: "Clear the conflict check first." }
   if (!lead.clio_matter_id || !lead.clio_client_contact_id) return { ok: false, message: "Create it in Clio first." }
+  if (await onSafetyHold(supabase, leadId)) return { ok: false, message: `${SAFETY_HOLD_MESSAGE} Release the hold first.` }
 
   // Staff may have opened the portal by hand and marked it sent.
   const { data: marked } = await supabase

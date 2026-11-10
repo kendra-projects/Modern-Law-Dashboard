@@ -26,6 +26,8 @@ import { mailConfigured } from "@/lib/mail"
 import { CONFLICT_EMAIL, conflictEmailTo } from "@/lib/conflict-email"
 import { botHandles, botModeFor, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
+import { safetyHold, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
+import { SafetyHoldCard } from "@/components/intake/safety-hold-card"
 
 export const dynamic = "force-dynamic"
 // Clearing the conflict or assigning the advocate can run the automatic
@@ -72,6 +74,7 @@ export default async function IntakeDetailPage({
 
   if (!lead) notFound()
   const allSteps = (steps ?? []) as IntakeStep[]
+  const hold = safetyHold(allSteps)
 
   // Who did a step and when: a person, or "Clio" when the sync found the work
   // already done there.
@@ -379,7 +382,7 @@ export default async function IntakeDetailPage({
           message={portalInviteText(lead.client_first)}
           sent={portalDone}
           portalsUrl={commsUrl(2)}
-          blocker={needsClear ?? needsMatter ?? (!lead.consulting_attorney ? "Needs a consulting attorney." : null)}
+          blocker={(hold ? SAFETY_HOLD_MESSAGE : null) ?? needsClear ?? needsMatter ?? (!lead.consulting_attorney ? "Needs a consulting attorney." : null)}
         />
       ),
     },
@@ -393,6 +396,7 @@ export default async function IntakeDetailPage({
         <TextStep
           leadId={lead.id}
           text={sms.text}
+          hold={hold ? SAFETY_HOLD_MESSAGE : null}
           missing={sms.missing}
           sent={textDone}
           textsUrl={commsUrl(3)}
@@ -482,6 +486,8 @@ export default async function IntakeDetailPage({
       >
         <ArrowLeft className="h-4 w-4" /> Intake queue
       </Link>
+
+      <SafetyHoldCard leadId={lead.id} hold={hold} />
 
       <LeadView
         name={clientName}
