@@ -6,7 +6,7 @@ import { botKinds, botModeFor, type BotKind, type BotMode } from "@/lib/bot-mode
 import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } from "@/lib/clio-intake"
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { cannotAutoClear, conflictAutoOn, fresh, savedSearch } from "@/lib/conflict-search"
-import { safetyHold } from "@/lib/safety-hold"
+import { contactWaitOver, safetyHold } from "@/lib/safety-hold"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
@@ -254,6 +254,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     // ahead, every detail filled in, and one spelling of the client's name.
     if (
       inRange(lead, "text") &&
+      contactWaitOver(lead.created_at) &&
       !settled(rows, "text") &&
       lead.conflict_status === "clear" &&
       // A real advocate signs it: Acuity's "Client" or "Other" is who booked,
@@ -305,6 +306,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     const advocate = isAdvocate(lead.assigned_advocate) && advocateSettled(rows) ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate!] : null
     if (
       inRange(lead, "portal") &&
+      contactWaitOver(lead.created_at) &&
       ahead &&
       lead.clio_matter_id &&
       lead.conflict_status === "clear" &&

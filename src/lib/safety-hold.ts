@@ -53,3 +53,16 @@ export async function leadsOnHold(db: Db, leadIds: string[]): Promise<Set<string
 }
 
 export const SAFETY_HOLD_MESSAGE = "Safety hold is on: this client must not be contacted."
+
+/**
+ * Nothing automated contacts a client (calendar invite, portal invite, text) in
+ * the first 10 minutes after the booking arrives, so staff have time to put a
+ * safety hold on first. Staff's own buttons on the lead page don't wait.
+ */
+export const CONTACT_WAIT_MS = 10 * 60 * 1000
+
+/** The booking arrived more than CONTACT_WAIT_MS ago. A missing or bad time waits. */
+export function contactWaitOver(bookedAt: string | null | undefined, now = Date.now()) {
+  const t = bookedAt ? Date.parse(bookedAt) : NaN
+  return Number.isFinite(t) && now - t >= CONTACT_WAIT_MS
+}

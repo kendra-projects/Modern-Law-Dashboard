@@ -25,7 +25,7 @@ import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
-import { onSafetyHold, safetyHold } from "@/lib/safety-hold"
+import { contactWaitOver, onSafetyHold, safetyHold } from "@/lib/safety-hold"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -182,6 +182,7 @@ function calendarGuestDue(s: State) {
   return (
     calendarGuestOn(s.lead.created_at) &&
     s.lead.conflict_status === "clear" &&
+    contactWaitOver(s.lead.created_at) &&
     Boolean(s.lead.external_id && s.lead.email && s.lead.consult_datetime) &&
     new Date(s.lead.consult_datetime!).getTime() > Date.now() &&
     !s.steps.some((x) => x.step_key === "calendar_guest" && x.state === "done") &&
@@ -425,6 +426,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else if (!advocate) waiting.push(`Portal invite: ${noAdvocate}`)
     else if (nameIssue) waiting.push(`Portal invite: ${nameIssue}`)
     else if (backingOff(s, "clio_portal")) waiting.push("Portal invite: tries again an hour after the last error")
+    else if (!contactWaitOver(lead.created_at)) waiting.push("Portal invite: waits 10 minutes after the booking (time to put a safety hold on)")
     else if (dry) done.push("send the portal invite")
     else if (await onSafetyHold(admin, lead.id)) waiting.push("Portal invite: safety hold is on")
     else {
