@@ -15,7 +15,7 @@ import {
 // the client hands over the key; the moment ACUITY_USER_ID / ACUITY_API_KEY land
 // in Vercel, enrichment starts filling leads in automatically.
 
-type AcuityForm = { id: number; values: { fieldID: number; value: string }[] }
+type AcuityForm = { id: number; values: { fieldID: number; value: string; name?: string }[] }
 export type AcuityAppointment = {
   id: number
   firstName?: string

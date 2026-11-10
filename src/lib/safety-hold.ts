@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, IntakeStep } from "@/types/database"
+import { logStep } from "@/lib/intake-step-log"
 
 // A safety hold: staff turn it on from the lead page when the client must not be
 // contacted (a safety concern, say). While it's on, nothing automated runs for the
@@ -52,7 +53,42 @@ export async function leadsOnHold(db: Db, leadIds: string[]): Promise<Set<string
   return new Set((data ?? []).map((r) => r.lead_id as string))
 }
 
-export const SAFETY_HOLD_MESSAGE = "Safety hold is on: this client must not be contacted."
+// ── From the booking ─────────────────────────────────────────────────────────
+// Staff who know about a concern when they book answer the safety question on
+// Acuity's internal staff form, and the hold is on before any automation runs
+// (the intake webhook calls holdFromAcuity first). The question is found by its
+// wording (anything with "safety" in it), so its id doesn't matter. Acuity can
+// only turn a hold ON: it never releases one, and once a person has released a
+// lead's hold, the form's answer doesn't put it back.
+
+type AcuityForms = { forms?: { values?: { name?: string; value?: string | null }[] }[] } | null | undefined
+
+/** Acuity's safety question on this booking is answered yes. */
+export function acuitySafetyYes(appt: AcuityForms): boolean {
+  for (const form of appt?.forms ?? []) {
+    for (const v of form.values ?? []) {
+      if (/safety/i.test(v.name ?? "") && /^\s*(yes|y|true|checked)\b/i.test(String(v.value ?? ""))) return true
+    }
+  }
+  return false
+}
+
+/** Put the lead on hold when the booking's safety answer is yes and nobody has decided yet. Returns true when it did. */
+export async function holdFromAcuity(db: Db, leadId: string, appt: AcuityForms): Promise<boolean> {
+  if (!acuitySafetyYes(appt)) return false
+  const { data } = await db.from("intake_steps").select("id").eq("lead_id", leadId).eq("step_key", SAFETY_HOLD).limit(1)
+  // On already, or released by a person: leave it.
+  if (data?.length) return false
+  const { error } = await logStep(db, {
+    lead_id: leadId,
+    step_key: SAFETY_HOLD,
+    state: "done",
+    detail: { by: "Acuity booking form", reason: "Safety concern answered Yes when booking", at: new Date().toISOString() },
+  })
+  return !error
+}
+
+export const SAFETY_HOLD_MESSAGE ="Safety hold is on: this client must not be contacted."
 
 /**
  * Nothing automated contacts a client (calendar invite, portal invite, text) in

@@ -12,6 +12,7 @@ import { wakeBotFor } from "@/lib/bot"
 import { markLexiBooked } from "@/lib/lexi-followups"
 import { runConflictSearch } from "@/lib/conflict-search"
 import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
+import { holdFromAcuity } from "@/lib/safety-hold"
 import type { Json } from "@/types/database"
 
 export const dynamic = "force-dynamic"
@@ -127,6 +128,8 @@ export async function POST(req: NextRequest) {
 
   // Reschedule / change on a known lead: re-pull the latest details.
   if (existing) {
+    // A safety concern answered on the changed booking stops everything below.
+    await holdFromAcuity(admin, existing.id, appt).catch(() => false)
     try {
       await enrichLeadFromAcuity(existing.id, appointmentId, appt)
     } catch {
@@ -162,6 +165,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (created?.id) {
+    // First, before any automation: a safety concern answered when booking puts
+    // the lead on hold (lib/safety-hold.ts).
+    await holdFromAcuity(admin, created.id, appt).catch(() => false)
     try {
       await enrichLeadFromAcuity(created.id, appointmentId, appt)
       if (appt) await upsertAppointment(appt, { leadId: created.id })
