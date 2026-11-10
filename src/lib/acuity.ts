@@ -1,6 +1,7 @@
 import "server-only"
 
 import { isAdvocate } from "@/lib/intake"
+import { holdEmail } from "@/lib/safety-hold"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { Json } from "@/types/database"
 import {
@@ -108,6 +109,12 @@ export function mapAppointmentToLead(a: AcuityAppointment) {
     consult_type: /strategy session/i.test(a.type ?? "") ? "LSS" : "IC",
     self_scheduled: !a.scheduledBy,
     ...methodAndOffice(a.location),
+  }
+  // On safety hold the appointment carries the firm's address and no phone
+  // (lib/acuity-hold-contact.ts): keep the client's own on the lead.
+  if ((a.email ?? "").trim().toLowerCase() === holdEmail()) {
+    delete patch.email
+    delete patch.phone
   }
   const extras: Record<string, string> = {}
   const noColumn = new Set([

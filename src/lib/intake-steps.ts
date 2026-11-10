@@ -33,6 +33,13 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     const h = (s.detail ?? {}) as { reason?: string | null }
     return s.state === "done" ? `Safety hold on: do not contact the client${h.reason ? ` (${h.reason})` : ""}` : "Safety hold released"
   }
+  if (s.step_key === "acuity_contact_hidden") {
+    const h = (s.detail ?? {}) as { sent_to?: string; restored?: string; restore_failed?: string }
+    if (s.state === "failed") return "Couldn't redirect Acuity's reminders: turn them off in Acuity by hand"
+    if (s.state === "skipped") return h.restored === "by hand" ? "Acuity contact was already changed back by hand" : "Client's email and phone put back on the Acuity appointment"
+    if (h.restore_failed) return "Couldn't put the client's email and phone back in Acuity"
+    return `Acuity reminders redirected to ${h.sent_to ?? "the firm"} (client's email and phone taken off the appointment)`
+  }
   // A failure staff dismissed from Intake Recovery still reads as the failure.
   if (s.state === "skipped") return `${describeStep({ ...s, state: "failed" })} (dismissed)`
   const d = (s.detail ?? {}) as StepDetail

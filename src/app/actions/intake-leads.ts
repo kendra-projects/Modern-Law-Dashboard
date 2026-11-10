@@ -17,7 +17,8 @@ import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake
 import { wakeBotFor } from "@/lib/bot"
 import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/conflict-search"
 import { conflictSearchLine } from "@/lib/intake-steps"
-import { onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
+import { holdEmail, onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
+import { hideAcuityContact, restoreAcuityContact } from "@/lib/acuity-hold-contact"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -167,12 +168,30 @@ export async function setSafetyHold(leadId: string, on: boolean, reason?: string
   })
   if (error) return { ok: false, message: on ? "Could not turn the safety hold on. Try again." : "Could not release the safety hold." }
 
+  // Acuity's own reminders (lib/acuity-hold-contact.ts): to the firm while held, back to the client after.
+  const acuity = on
+    ? await hideAcuityContact(supabase, leadId, by).catch(() => "failed" as const)
+    : await restoreAcuityContact(supabase, leadId, by).catch(() => "failed" as const)
+
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
   revalidatePath("/")
-  return on
-    ? { ok: true, message: "Safety hold on. Nothing automated will contact this client." }
-    : { ok: true, message: "Safety hold released. The automation carries on with the next sync." }
+  if (on) {
+    const reminders =
+      acuity === "hidden" || acuity === "already"
+        ? ` Acuity's reminders now go to ${holdEmail()} instead of the client.`
+        : acuity === "failed"
+          ? " Couldn't redirect Acuity's reminders: turn them off for this appointment in Acuity by hand."
+          : ""
+    return { ok: acuity !== "failed", message: `Safety hold on. Nothing automated will contact this client.${reminders}` }
+  }
+  const reminders =
+    acuity === "restored"
+      ? " The client's email and phone are back on the Acuity appointment."
+      : acuity === "failed"
+        ? " Couldn't put the client's email and phone back in Acuity: release again, or fix it in Acuity by hand."
+        : ""
+  return { ok: acuity !== "failed", message: `Safety hold released. The automation carries on with the next sync.${reminders}` }
 }
 
 /** Assign the lead to an advocate. Human choice; no API involved. */

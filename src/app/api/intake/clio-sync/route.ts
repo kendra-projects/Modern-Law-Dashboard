@@ -7,6 +7,8 @@ import { syncGrowForLead, syncOpenLeadsFromGrow } from "@/lib/grow-sync"
 import { runAutoIntake, runAutoIntakeForOpenLeads } from "@/lib/auto-intake"
 import { runConflictSearch, runConflictSearchForOpenLeads } from "@/lib/conflict-search"
 import { markLexiBooked } from "@/lib/lexi-followups"
+import { onSafetyHold } from "@/lib/safety-hold"
+import { ACUITY_CONTACT_HIDDEN, hideAcuityContact } from "@/lib/acuity-hold-contact"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -71,6 +73,17 @@ async function run(request: NextRequest) {
           .eq("id", leadId)
           .maybeSingle()
       : { data: null }
+    // A held lead whose Acuity reminders still go to the client (held before
+    // this existed, or the last try failed): redirect them now.
+    if (lead && admin && (await onSafetyHold(admin, lead.id))) {
+      const { data: hidden } = await admin
+        .from("intake_steps")
+        .select("state")
+        .eq("lead_id", lead.id)
+        .eq("step_key", ACUITY_CONTACT_HIDDEN)
+        .maybeSingle()
+      if (!hidden || hidden.state === "failed") await hideAcuityContact(admin, lead.id, "Automatic").catch(() => "failed")
+    }
     if (!lead || ["stopped", "failed"].includes(lead.status)) return NextResponse.json({ ok: true, changes: [] })
     // A canceled lead only needs its Grow cancellation note.
     if (lead.status === "canceled") {

@@ -88,7 +88,14 @@ export async function holdFromAcuity(db: Db, leadId: string, appt: AcuityForms):
   return !error
 }
 
-export const SAFETY_HOLD_MESSAGE ="Safety hold is on: this client must not be contacted."
+/**
+ * Where a held client's Acuity reminders go instead (lib/acuity-hold-contact.ts).
+ * Acuity has no per-appointment reminder switch, so the appointment's email is
+ * swapped for this one and its phone cleared while the hold is on.
+ */
+export const holdEmail = () => (process.env.SAFETY_HOLD_EMAIL?.trim() || "sales@mymodernlaw.com").toLowerCase()
+
+export const SAFETY_HOLD_MESSAGE = "Safety hold is on: this client must not be contacted."
 
 /**
  * Nothing automated contacts a client (calendar invite, portal invite, text) in
