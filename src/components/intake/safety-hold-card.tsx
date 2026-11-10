@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { ShieldAlert, ShieldOff } from "lucide-react"
 import { setSafetyHold } from "@/app/actions/intake-leads"
 import { Button } from "@/components/ui/button"
@@ -24,6 +25,7 @@ export function SafetyHoldCard({
   leadId: string
   hold: { by: string; reason: string | null; at: string } | null
 }) {
+  const router = useRouter()
   const [pending, start] = React.useTransition()
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null)
   const [asking, setAsking] = React.useState(false)
@@ -36,6 +38,8 @@ export function SafetyHoldCard({
       if (r.ok) {
         setAsking(false)
         setReason("")
+        // Show the banner (or take it down) straight away, not on the next reload.
+        router.refresh()
       }
     })
 
