@@ -366,6 +366,12 @@ export function ConflictStep({
                 ))}
               </ul>
             </div>
+          ) : search.others.length ? (
+            <p className="text-xs text-accent">
+              {search.others.length} other same-name {search.others.length === 1 ? "record" : "records"} (below). None shows the opposing party
+              as a client of the firm or the client on the other side of a firm case, but check {search.others.length === 1 ? "it's" : "they're"}{" "}
+              someone else: nothing continues until you decide.
+            </p>
           ) : (
             <p className="text-xs text-success">
               Nothing flagged: no match shows the opposing party as a client of the firm, or the client on the other side of a firm case.

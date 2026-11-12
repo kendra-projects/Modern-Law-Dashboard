@@ -322,11 +322,13 @@ export default async function IntakeDetailPage({
             ? "Conflict found"
             : conflictSearch?.flagged.length
               ? `${conflictSearch.flagged.length} to look at`
-              : conflictSearch
+              : conflictSearch?.others.length
+                ? `${conflictSearch.others.length} same-name to check`
+                : conflictSearch
                 ? "Nothing flagged, confirm"
                 : "Waiting on the check",
       description: conflictAutoOn()
-        ? `The dashboard searches Clio for the client and the opposing party. A clean search clears the check on its own; a match, or a name it couldn't search, waits here for staff to decide${mailConfigured() ? ` and is emailed to ${conflictEmailTo()}` : ""}.`
+        ? `The dashboard searches Clio for the client and the opposing party. A clean search clears the check on its own; a match, a same-name record, or a name it couldn't search, waits here for staff to decide${mailConfigured() ? ` and is emailed to ${conflictEmailTo()}` : ""}.`
         : "The dashboard searches Clio for the client and the opposing party and flags what needs a look. Staff decide and record the result here.",
       body: (
         <ConflictStep

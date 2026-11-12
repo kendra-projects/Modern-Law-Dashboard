@@ -89,7 +89,13 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     case "conflict_email":
       return s.state === "failed"
         ? `The conflict check email to ${d.to ?? "the team"} didn't go out`
-        : `Conflict check emailed to ${d.to ?? "the team"}: ${d.reason === "match" ? `${d.flags ?? ""} ${(d.flags ?? 0) === 1 ? "match" : "matches"} to look at`.trim() : "no opposing party to search"}`
+        : `Conflict check emailed to ${d.to ?? "the team"}: ${
+            d.reason === "match"
+              ? `${d.flags ?? ""} ${(d.flags ?? 0) === 1 ? "match" : "matches"} to look at`.trim()
+              : d.reason === "same_name"
+                ? "same-name records to look at"
+                : "no opposing party to search"
+          }`
     case "clio_contact":
       return d.action === "created"
         ? "Clio contact created"

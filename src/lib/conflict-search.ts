@@ -294,12 +294,23 @@ export function savedSearch(steps: Pick<IntakeStep, "step_key" | "detail">[]): C
 }
 
 /** Why this search can't clear the check on its own, or null when it can. */
-export function cannotAutoClear(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags">): string | null {
+export function cannotAutoClear(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags" | "hits">): string | null {
   if (x.errors.length) return "the search didn't fully go through"
   if (!x.searched.includes("Clio Manage") || !x.searched.includes("Clio Grow")) return "Clio Manage and Grow weren't both searched"
   if (!x.opposing) return "the opposing party wasn't searched"
   if (x.flags) return `${x.flags} ${x.flags === 1 ? "match" : "matches"} to look at`
+  // Anything that came up besides this consult's own records waits for a person
+  // (Kendra, 12 Nov 2026: a lead with 2 other same-name records was converted to
+  // Clio Manage a minute after booking). Only "no matches" or "only this
+  // consult's own records" clears or converts on its own.
+  const others = sameNameRecords(x)
+  if (others) return `${others} other same-name ${others === 1 ? "record" : "records"} to look at`
   return null
+}
+
+/** Records the search found that aren't this consult's own (flagged or not). */
+export function sameNameRecords(x: Pick<ConflictSearch, "hits">): number {
+  return (x.hits ?? []).filter((h) => !h.self && !h.flag).length
 }
 
 /**

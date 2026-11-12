@@ -40,8 +40,13 @@ export type ConflictEmailLead = Pick<
 export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 
 /** A search a person has to finish: it went through, but found a match or couldn't search the opposing party. */
-export function needsPerson(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags">) {
-  return !x.errors.length && x.searched.includes("Clio Manage") && x.searched.includes("Clio Grow") && (x.flags > 0 || !x.opposing)
+export function needsPerson(x: Pick<ConflictSearch, "errors" | "searched" | "opposing" | "flags" | "hits">) {
+  return (
+    !x.errors.length &&
+    x.searched.includes("Clio Manage") &&
+    x.searched.includes("Clio Grow") &&
+    (x.flags > 0 || !x.opposing || (x.hits ?? []).some((h) => !h.self && !h.flag))
+  )
 }
 
 // The dashboard's Luxury Evening theme (globals.css), as hex for email clients.
@@ -77,16 +82,24 @@ export function conflictEmail(lead: ConflictEmailLead, search: ConflictSearch) {
   const link = `${SITE}/intake/${lead.id}?step=conflict`
   const flagged = search.hits.filter((h) => h.flag)
   const match = flagged.length > 0
+  // Same-name records that aren't flagged still wait for a person (cannotAutoClear).
+  const others = search.hits.filter((h) => !h.self && !h.flag)
+  const same = !match && others.length > 0
+  const listed = match ? flagged : same ? others : []
   const opposing =
     search.opposing ?? (lead.opposing_party_name?.trim() ? `${lead.opposing_party_name.trim()} (not a full name)` : "Not provided")
 
   const subject = `${match ? "Possible conflict" : "Conflict check needed"}: ${client}${when ? ` (consult ${when})` : ""}`
   const badge = match
     ? { text: "Possible conflict", fg: C.danger, bg: C.dangerSoft }
-    : { text: "Opposing party missing", fg: C.warning, bg: C.warningSoft }
+    : same
+      ? { text: "Same-name record", fg: C.warning, bg: C.warningSoft }
+      : { text: "Opposing party missing", fg: C.warning, bg: C.warningSoft }
   const summary = match
     ? `The automatic search found ${flagged.length === 1 ? "a record" : `${flagged.length} records`} in Clio that may be a conflict. The intake is on hold until you decide.`
-    : "The booking has no usable opposing party name, so the check can't be cleared automatically. The intake is on hold until you decide."
+    : same
+      ? `The automatic search found ${others.length === 1 ? "a record" : `${others.length} records`} in Clio with the same name. Nothing shows ${others.length === 1 ? "it" : "them"} on the other side of a firm case, but a person has to confirm it's someone else. The intake is on hold until you decide.`
+      : "The booking has no usable opposing party name, so the check can't be cleared automatically. The intake is on hold until you decide."
 
   const facts: [string, string | null][] = [
     ["Consultation", [consult, when && `${when} (Arizona)`].filter(Boolean).join(", ")],
@@ -97,9 +110,12 @@ export function conflictEmail(lead: ConflictEmailLead, search: ConflictSearch) {
     ["Matter type", lead.matter_type],
   ]
   const side = (h: ConflictHit) => (h.side === "client" ? "Same name as the client" : "Same name as the opposing party")
-  const why = (h: ConflictHit) => h.roles.filter((r) => r.flag).map((r) => r.text)
+  const why = (h: ConflictHit) => {
+    const roles = h.roles.filter((r) => r.flag || !match).map((r) => r.text)
+    return roles.length ? roles : ["Same name, not on a firm case"]
+  }
 
-  const steps = match
+  const steps = match || same
     ? [
         "Review the match in Clio: location, case and the other people on it.",
         "Different person: click <b>No conflict</b>. The intake continues automatically.",
@@ -153,8 +169,8 @@ ${facts
   .join("")}
 </table></td></tr>
 ${
-  match
-    ? `<tr><td style="padding:22px 28px 4px">${label("Found in Clio")}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${C.border};border-left:3px solid ${C.dangerLine};border-radius:8px;border-collapse:separate">${flagged
+  listed.length
+    ? `<tr><td style="padding:22px 28px 4px">${label("Found in Clio")}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${C.border};border-left:3px solid ${C.dangerLine};border-radius:8px;border-collapse:separate">${listed
         .map(hit)
         .join("")}</table></td></tr>`
     : ""
@@ -177,7 +193,7 @@ ${
     summary,
     "",
     ...facts.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`),
-    ...(match ? ["", "Found in Clio:", ...flagged.map((h) => `- ${h.name} (${side(h).toLowerCase()}): ${why(h).join("; ")}${h.url ? ` ${h.url}` : ""}`)] : []),
+    ...(listed.length ? ["", "Found in Clio:", ...listed.map((h) => `- ${h.name} (${side(h).toLowerCase()}): ${why(h).join("; ")}${h.url ? ` ${h.url}` : ""}`)] : []),
     "",
     `Review conflict check: ${link}`,
     "",
@@ -211,7 +227,7 @@ export async function emailConflict(admin: Admin, lead: ConflictEmailLead, searc
       lead_id: lead.id,
       step_key: CONFLICT_EMAIL,
       state: "done",
-      detail: { by: "Automatic", to, flags: search.flags, reason: search.flags ? "match" : "no_opposing", search_at: search.at },
+      detail: { by: "Automatic", to, flags: search.flags, reason: search.flags ? "match" : !search.opposing ? "no_opposing" : "same_name", search_at: search.at },
     })
     return true
   } catch (e) {
