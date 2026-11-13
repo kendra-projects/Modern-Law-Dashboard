@@ -7,7 +7,7 @@ import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } f
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { cannotAutoClear, conflictAutoOn, fresh, savedSearch } from "@/lib/conflict-search"
 import { contactWaitOver, safetyHold } from "@/lib/safety-hold"
-import { checkReturningClient, growMayProceed } from "@/lib/returning-client"
+import { checkReturningClient, growMayProceed, returningState } from "@/lib/returning-client"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
@@ -249,6 +249,8 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     // A safety hold (lib/safety-hold.ts): pausing Lexi above stops contact, so it
     // still runs; the text, the Grow card and the portal don't.
     if (safetyHold(rows)) continue
+    // A returning client waiting on same case or new case: no text, Grow work or portal on a matter that may be the wrong one.
+    if (returningState(rows) === "waiting") continue
 
     // The text needs what the lead page needs before Send: the conflict clear,
     // the advocate who signs it, the matter it is sent from, a consult still

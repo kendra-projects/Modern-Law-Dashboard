@@ -29,7 +29,7 @@ import type { IntakeStep } from "@/types/database"
 import { safetyHold, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { SafetyHoldCard } from "@/components/intake/safety-hold-card"
 import { ReturningClientCard } from "@/components/intake/returning-client-card"
-import { returningDetail, returningState } from "@/lib/returning-client"
+import { RETURNING_MESSAGE, returningDetail, returningState } from "@/lib/returning-client"
 
 export const dynamic = "force-dynamic"
 // Clearing the conflict or assigning the advocate can run the automatic
@@ -387,7 +387,7 @@ export default async function IntakeDetailPage({
           message={portalInviteText(lead.client_first)}
           sent={portalDone}
           portalsUrl={commsUrl(2)}
-          blocker={(hold ? SAFETY_HOLD_MESSAGE : null) ?? needsClear ?? needsMatter ?? (!lead.consulting_attorney ? "Needs a consulting attorney." : null)}
+          blocker={(hold ? SAFETY_HOLD_MESSAGE : null) ?? (returning.length ? RETURNING_MESSAGE : null) ?? needsClear ?? needsMatter ?? (!lead.consulting_attorney ? "Needs a consulting attorney." : null)}
         />
       ),
     },
@@ -401,7 +401,7 @@ export default async function IntakeDetailPage({
         <TextStep
           leadId={lead.id}
           text={sms.text}
-          hold={hold ? SAFETY_HOLD_MESSAGE : null}
+          hold={hold ? `${SAFETY_HOLD_MESSAGE} Don't text them.` : returning.length ? RETURNING_MESSAGE : null}
           missing={sms.missing}
           sent={textDone}
           textsUrl={commsUrl(3)}

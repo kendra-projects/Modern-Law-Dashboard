@@ -26,7 +26,7 @@ import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
 import { contactWaitOver, onSafetyHold, safetyHold } from "@/lib/safety-hold"
-import { checkReturningClient, growMayProceed } from "@/lib/returning-client"
+import { checkReturningClient, growMayProceed, returningState } from "@/lib/returning-client"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -433,6 +433,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else if (!contactWaitOver(lead.created_at)) waiting.push("Portal invite: waits 10 minutes after the booking (time to put a safety hold on)")
     else if (dry) done.push("send the portal invite")
     else if (await onSafetyHold(admin, lead.id)) waiting.push("Portal invite: safety hold is on")
+    else if (returningState(s.steps) === "waiting") waiting.push("Portal invite: returning client, decide same case or new case first")
     else {
       try {
         const r = await sendClioPortalInvite({

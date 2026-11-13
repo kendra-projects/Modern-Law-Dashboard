@@ -586,7 +586,7 @@ export function TextStep({
   zoomFrom?: string | null
 }) {
   const { pending, run, note } = useAction()
-  if (hold && !sent) return <p className="text-xs font-medium text-destructive">{hold} Don&apos;t text them.</p>
+  if (hold && !sent) return <p className="text-xs font-medium text-destructive">{hold}</p>
   if (!text) return <Hint>Needs: {missing.join(", ")}.</Hint>
   return (
     <div className="space-y-3">

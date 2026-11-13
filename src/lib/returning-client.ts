@@ -122,5 +122,8 @@ export async function checkReturningClient(db: Db, lead: Lead, steps: Pick<Intak
   return "waiting"
 }
 
+/** Shown where a portal or text waits on the decision. */
+export const RETURNING_MESSAGE = "Returning client: decide same case or new case first (top of this page), so this goes on the right matter."
+
 /** The bot may create or convert a Grow matter for this lead. */
 export const growMayProceed = (state: ReturningState) => state === "none" || state === "new"

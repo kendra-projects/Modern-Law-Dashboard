@@ -19,7 +19,7 @@ import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/c
 import { conflictSearchLine } from "@/lib/intake-steps"
 import { holdEmail, onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { hideAcuityContact, restoreAcuityContact } from "@/lib/acuity-hold-contact"
-import { RETURNING, type ReturningDetail } from "@/lib/returning-client"
+import { RETURNING, RETURNING_MESSAGE, returningState, type ReturningDetail } from "@/lib/returning-client"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -309,6 +309,8 @@ export async function sendPortalInvite(leadId: string): Promise<ActionResult> {
   if (lead.conflict_status !== "clear") return { ok: false, message: "Clear the conflict check first." }
   if (!lead.clio_matter_id || !lead.clio_client_contact_id) return { ok: false, message: "Create it in Clio first." }
   if (await onSafetyHold(supabase, leadId)) return { ok: false, message: `${SAFETY_HOLD_MESSAGE} Release the hold first.` }
+  const { data: ret } = await supabase.from("intake_steps").select("step_key, state, detail").eq("lead_id", leadId).eq("step_key", RETURNING)
+  if (returningState(ret ?? []) === "waiting") return { ok: false, message: RETURNING_MESSAGE }
 
   // Staff may have opened the portal by hand and marked it sent.
   const { data: marked } = await supabase
