@@ -7,6 +7,7 @@ import { CLIO_APP, matterDescription, onePerson, practiceAreaName, splitName } f
 import { confirmationText, consultMethod, PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { cannotAutoClear, conflictAutoOn, fresh, savedSearch } from "@/lib/conflict-search"
 import { contactWaitOver, safetyHold } from "@/lib/safety-hold"
+import { checkReturningClient, growMayProceed } from "@/lib/returning-client"
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
@@ -351,6 +352,14 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
   // Several Grow matters could be the client's: staff pick one on the lead page first.
   if (!matterId && rows.some((s) => s.step_key === "grow_match" && s.state === "awaiting_human")) return null
   if (!matterId && Date.now() - new Date(lead.created_at).getTime() < CREATE_AFTER) return null
+
+  // A returning client (lib/returning-client.ts): while staff decide whether
+  // this is the same case as an open matter, or once they say it is, the bot
+  // neither creates nor converts a Grow matter. A Clio error holds off too.
+  if (!lead.clio_matter_id) {
+    const returning = await checkReturningClient(admin, lead, rows).catch(() => "error" as const)
+    if (returning === "error" || !growMayProceed(returning)) return null
+  }
 
   const done = (key: string) => rows.some((s) => s.step_key === key && s.state === "done")
   const search = savedSearch(rows)

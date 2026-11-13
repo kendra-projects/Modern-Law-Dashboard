@@ -28,6 +28,8 @@ import { botHandles, botModeFor, type BotKind } from "@/lib/bot"
 import type { IntakeStep } from "@/types/database"
 import { safetyHold, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { SafetyHoldCard } from "@/components/intake/safety-hold-card"
+import { ReturningClientCard } from "@/components/intake/returning-client-card"
+import { returningDetail, returningState } from "@/lib/returning-client"
 
 export const dynamic = "force-dynamic"
 // Clearing the conflict or assigning the advocate can run the automatic
@@ -75,6 +77,7 @@ export default async function IntakeDetailPage({
   if (!lead) notFound()
   const allSteps = (steps ?? []) as IntakeStep[]
   const hold = safetyHold(allSteps)
+  const returning = returningState(allSteps) === "waiting" ? returningDetail(allSteps)?.matters ?? [] : []
 
   // Who did a step and when: a person, or "Clio" when the sync found the work
   // already done there.
@@ -490,6 +493,8 @@ export default async function IntakeDetailPage({
       </Link>
 
       <SafetyHoldCard leadId={lead.id} hold={hold} />
+
+      {returning.length > 0 && <ReturningClientCard leadId={lead.id} client={clientName} matters={returning} />}
 
       <LeadView
         name={clientName}

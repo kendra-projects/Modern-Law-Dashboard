@@ -26,6 +26,7 @@ import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
 import { contactWaitOver, onSafetyHold, safetyHold } from "@/lib/safety-hold"
+import { checkReturningClient, growMayProceed } from "@/lib/returning-client"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep } from "@/types/database"
 
@@ -345,7 +346,10 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
         // A contact with this email or phone under another name is someone
         // else sharing it (a spouse, a parent who booked): staff decide.
         const found = await findClioContact(lead)
+        // A returning client: same case or new case is staff's call (lib/returning-client.ts).
+        const returning = found.other ? "none" : await checkReturningClient(admin, lead, s.steps)
         if (found.other) waiting.push(`Clio matter: the Clio contact with this ${found.other.by} is "${found.other.contact.name}"`)
+        else if (!growMayProceed(returning)) waiting.push("Clio matter: returning client, staff decide same case or new case")
         else if (dry) {
           done.push("create the Clio contact and matter")
           matterComing = true

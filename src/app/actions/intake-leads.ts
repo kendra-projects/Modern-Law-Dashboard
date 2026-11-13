@@ -19,6 +19,7 @@ import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/c
 import { conflictSearchLine } from "@/lib/intake-steps"
 import { holdEmail, onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { hideAcuityContact, restoreAcuityContact } from "@/lib/acuity-hold-contact"
+import { RETURNING, type ReturningDetail } from "@/lib/returning-client"
 
 export type ActionResult = { ok: boolean; message: string }
 
@@ -643,6 +644,64 @@ export async function linkClioMatter(leadId: string, matterId: string): Promise<
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
   return { ok: true, message: `Linked to Clio matter ${matter.display_number}.${autoIntakeMessage(auto)}` }
+}
+
+/**
+ * A returning client (lib/returning-client.ts): "same" links the booking to
+ * one of the client's open matters (no new Grow or Manage matter); "new" lets
+ * the bot make and convert a new one as usual. Anyone with Intake access.
+ */
+export async function decideReturningClient(leadId: string, decision: "same" | "new", matterId?: string): Promise<ActionResult> {
+  const { supabase, user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+
+  const { data: row } = await supabase
+    .from("intake_steps")
+    .select("state, detail")
+    .eq("lead_id", leadId)
+    .eq("step_key", RETURNING)
+    .maybeSingle()
+  if (!row) return { ok: false, message: "This lead isn't waiting on a returning-client decision." }
+  const detail = (row.detail ?? {}) as ReturningDetail
+  const by = user.email ?? user.id
+  const at = new Date().toISOString()
+
+  if (decision === "same") {
+    const matter = (detail.matters ?? []).find((m) => m.id === matterId)
+    if (!matter) return { ok: false, message: "Pick one of the client's open matters." }
+    const { data: lead } = await supabase.from("intake_leads").select("clio_matter_id").eq("id", leadId).maybeSingle()
+    let linked: ActionResult
+    if (lead?.clio_matter_id && lead.clio_matter_id !== matter.id) {
+      // Already tied to a matter made for this booking (a duplicate): point it at the client's open one.
+      const duplicate = lead.clio_matter_id
+      await supabase.from("intake_leads").update({ clio_matter_id: matter.id }).eq("id", leadId)
+      await logStep(supabase, {
+        lead_id: leadId,
+        step_key: "clio_matter",
+        state: "done",
+        detail: { matter_id: matter.id, display: matter.display, action: "linked", replaced: duplicate, by },
+      })
+      linked = { ok: true, message: `Clio matter ${duplicate} was made for this booking: close or delete it in Clio by hand.` }
+    } else {
+      linked = await linkClioMatter(leadId, matter.id)
+      if (!linked.ok) return linked
+    }
+    await logStep(supabase, {
+      lead_id: leadId,
+      step_key: RETURNING,
+      state: "done",
+      detail: { ...detail, decision: "same", matter_id: matter.id, display: matter.display, by, at },
+    })
+    revalidatePath(`/intake/${leadId}`)
+    return { ok: true, message: `Same case: linked to ${matter.display}. Close the extra Grow lead by hand. ${linked.message}`.trim() }
+  }
+
+  await logStep(supabase, { lead_id: leadId, step_key: RETURNING, state: "done", detail: { ...detail, decision: "new", by, at } })
+  await wakeBotFor(leadId).catch(() => false)
+  revalidatePath(`/intake/${leadId}`)
+  revalidatePath("/intake/recovery")
+  return { ok: true, message: "New case: the bot makes the new Grow matter and converts it to Clio Manage as usual." }
 }
 
 // ── Manual lead entry ────────────────────────────────────────────────────────

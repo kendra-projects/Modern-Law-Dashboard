@@ -8,6 +8,7 @@ import { runAutoIntake, runAutoIntakeForOpenLeads } from "@/lib/auto-intake"
 import { runConflictSearch, runConflictSearchForOpenLeads } from "@/lib/conflict-search"
 import { markLexiBooked } from "@/lib/lexi-followups"
 import { onSafetyHold } from "@/lib/safety-hold"
+import { checkReturningClient, RETURNING } from "@/lib/returning-client"
 import { ACUITY_CONTACT_HIDDEN, hideAcuityContact } from "@/lib/acuity-hold-contact"
 
 export const dynamic = "force-dynamic"
@@ -69,7 +70,7 @@ async function run(request: NextRequest) {
     const { data: lead } = admin
       ? await admin
           .from("intake_leads")
-          .select("id, client_first, client_last, email, phone, status, created_at, clio_client_contact_id, clio_matter_id, clio_portal_id")
+          .select("id, client_first, client_last, email, phone, status, created_at, clio_client_contact_id, clio_matter_id, clio_portal_id, consulting_attorney")
           .eq("id", leadId)
           .maybeSingle()
       : { data: null }
@@ -83,6 +84,11 @@ async function run(request: NextRequest) {
         .eq("step_key", ACUITY_CONTACT_HIDDEN)
         .maybeSingle()
       if (!hidden || hidden.state === "failed") await hideAcuityContact(admin, lead.id, "Automatic").catch(() => "failed")
+    }
+    // A returning client with open matters: ask staff same case or new case (lib/returning-client.ts).
+    if (lead && admin && !["canceled", "stopped", "failed", "done"].includes(lead.status)) {
+      const { data: rows } = await admin.from("intake_steps").select("step_key, state, detail").eq("lead_id", lead.id).eq("step_key", RETURNING)
+      await checkReturningClient(admin, lead, rows ?? []).catch(() => null)
     }
     if (!lead || ["stopped", "failed"].includes(lead.status)) return NextResponse.json({ ok: true, changes: [] })
     // A canceled lead only needs its Grow cancellation note.

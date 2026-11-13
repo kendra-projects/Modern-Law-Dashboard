@@ -33,6 +33,16 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     const h = (s.detail ?? {}) as { reason?: string | null }
     return s.state === "done" ? `Safety hold on: do not contact the client${h.reason ? ` (${h.reason})` : ""}` : "Safety hold released"
   }
+  if (s.step_key === "returning_client") {
+    const r = (s.detail ?? {}) as { decision?: string; display?: string; matters?: unknown[] }
+    if (s.state === "awaiting_human") {
+      const n = r.matters?.length ?? 0
+      return `Returning client: same case or new case? (${n} open ${n === 1 ? "matter" : "matters"} in Clio)`
+    }
+    if (r.decision === "same") return `Returning client, same case: booking linked to ${r.display ?? "the open matter"}`
+    if (r.decision === "new") return "Returning client, new case: the bot makes a new matter"
+    return "Not a returning client: no open matters in Clio"
+  }
   if (s.step_key === "acuity_contact_hidden") {
     const h = (s.detail ?? {}) as { sent_to?: string; restored?: string; restore_failed?: string }
     if (s.state === "failed") return "Couldn't redirect Acuity's reminders: turn them off in Acuity by hand"
