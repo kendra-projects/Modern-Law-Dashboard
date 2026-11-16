@@ -12,7 +12,7 @@ import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
 import { growContactId, type GrowLead } from "@/lib/grow-sync"
-import { autoSignoff } from "@/lib/auto-intake"
+import { autoSignoff, runAutoIntake } from "@/lib/auto-intake"
 import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
@@ -596,6 +596,17 @@ async function recordJobResult(
     if (!invite?.length) await logStep(admin, { lead_id: r.lead_id, step_key: "clio_portal_sent", state: "done", detail: { by: BOT_BY, action, note: r.note } })
   }
   await admin.from("intake_steps").delete().eq("lead_id", r.lead_id).eq("step_key", botKey)
+  if (r.kind === "grow") {
+    // The bot may just have converted the Grow matter: pick the Manage matter up
+    // now (the automatic intake syncs from Clio first), not when someone next
+    // opens the dashboard, and wake the bot for the portal and text that follow.
+    // (Tracy Roach, 16 Nov 2026: converted 1:04 PM, linked only at 1:35 PM.)
+    const { data: lead } = await admin.from("intake_leads").select("clio_matter_id").eq("id", r.lead_id).maybeSingle()
+    if (lead && !lead.clio_matter_id) {
+      await runAutoIntake(r.lead_id).catch(() => null)
+      await wakeBotFor(r.lead_id).catch(() => false)
+    }
+  }
   return { approved: await autoSignoff(r.lead_id).catch(() => false) }
 }
 
