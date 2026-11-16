@@ -173,7 +173,8 @@ function acuityFormDue(s: State) {
     acuityFormOn() &&
     s.lead.self_scheduled === true &&
     Boolean(s.lead.external_id) &&
-    !s.steps.some((x) => x.step_key === "acuity_form_filled" && x.state === "done") &&
+    // Done once, plus once more for forms filled before the ZOOM / PHONE / IN PERSON labels (16 Nov 2026).
+    !s.steps.some((x) => x.step_key === "acuity_form_filled" && x.state === "done" && (x.detail as { labeled?: boolean } | null)?.labeled) &&
     !backingOff(s, "acuity_form_fill")
   )
 }
@@ -302,7 +303,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else {
       try {
         const r = await fillAcuityForm(admin, lead)
-        await step("acuity_form_filled", "done", { changed: r.changed, notes: r.notes })
+        await step("acuity_form_filled", "done", { changed: r.changed, notes: r.notes, labeled: true })
         await clearFailure(admin, lead.id, "acuity_form_fill")
         if (r.changed.length) done.push(`filled in the Acuity intake form (${r.changed.join(", ")})`)
       } catch (e) {

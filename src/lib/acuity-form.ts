@@ -54,15 +54,47 @@ function acuityAuth() {
   return userId && apiKey ? `Basic ${Buffer.from(`${userId}:${apiKey}`).toString("base64")}` : null
 }
 
-/** Where the consult happens, for the staff form: the Zoom link, the office address or the phone number. */
+// The firm's format for "Zoom Link, Office Address, or Phone Number", always:
+// "ZOOM: <link>", "PHONE: <number>" or "IN PERSON: <address>" (Kendra, 16 Nov
+// 2026; the automation had written the bare link, number or address).
+const WHERE_LABEL = { zoom: "ZOOM", phone: "PHONE", in_person: "IN PERSON" } as const
+type WhereKind = keyof typeof WHERE_LABEL
+const LABELED = /^\s*(zoom|phone|in person)\s*:\s*/i
+
+export function labelWhere(kind: WhereKind, value: string) {
+  return `${WHERE_LABEL[kind]}: ${value.trim()}`
+}
+
+/**
+ * An answer already in the field, in the firm's format: the same answer with
+ * its label added or put in capitals, or null when it's already right or not
+ * something to label (staff's own wording is left alone).
+ */
+export function relabelWhere(current: string, method: Lead["method"]): string | null {
+  const v = current.trim()
+  if (!v) return null
+  const had = v.match(LABELED)
+  if (had) {
+    const kind = had[1].toLowerCase().replace(" ", "_") as WhereKind
+    const fixed = labelWhere(kind, v.slice(had[0].length))
+    return fixed === v ? null : fixed
+  }
+  if (/^https?:\/\/\S*zoom\.us\/\S+$/i.test(v)) return labelWhere("zoom", v)
+  if (/^\+?[\d\s().-]{10,}$/.test(v) && v.replace(/\D/g, "").length >= 10) return labelWhere("phone", v)
+  if (method === "in_person") return labelWhere("in_person", v)
+  return null
+}
+
+/** Where the consult happens, for the staff form, labelled: ZOOM / PHONE / IN PERSON. */
 async function whereValue(db: Db, lead: Lead, location: string | null): Promise<string | null> {
   if (lead.method === "in_person" && lead.office) {
     const { data } = await db.from("office_addresses").select("address").eq("office", lead.office).maybeSingle()
-    return data?.address ?? null
+    return data?.address ? labelWhere("in_person", data.address) : null
   }
-  if (lead.method === "phone") return lead.phone
+  if (lead.method === "phone") return lead.phone ? labelWhere("phone", lead.phone) : null
   const { location: loc } = await consultLocation(db, lead, location)
-  return loc?.match(/https?:\/\/\S*zoom\.us\/\S+/i)?.[0] ?? null
+  const link = loc?.match(/https?:\/\/\S*zoom\.us\/\S+/i)?.[0]
+  return link ? labelWhere("zoom", link) : null
 }
 
 /**
@@ -88,6 +120,10 @@ export async function fillAcuityForm(db: Db, lead: Lead): Promise<{ changed: str
     const where = await whereValue(db, lead, appt.location ?? null)
     if (where) want.set(FIELD.where, where)
     else notes.push("No Zoom link, address or phone to put in")
+  } else {
+    // Filled before (by the automation without its label, or by hand in lower case): fix the label only.
+    const fixed = relabelWhere(current.get(FIELD.where) ?? "", lead.method)
+    if (fixed) want.set(FIELD.where, fixed)
   }
   if (empty(FIELD.referral)) {
     // The client's own answer, else Google (the walkthrough's default); an answer
