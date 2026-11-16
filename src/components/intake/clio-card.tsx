@@ -135,7 +135,7 @@ export async function ClioStep({
               icon={UserRound}
               tone="success"
               title={r.contact.name}
-              meta={`${r.matchedBy === "staff" ? "Set by staff" : `Matched by ${r.matchedBy}`} · added ${fmtDate(r.contact.created_at)}${r.contact.is_client ? " · client" : ""}`}
+              meta={`${r.matchedBy === "staff" ? "Linked" : `Matched by ${r.matchedBy}`} · added ${fmtDate(r.contact.created_at)}${r.contact.is_client ? " · client" : ""}`}
             />
           ) : (
             <Tile icon={UserPlus} tone="muted" title="Not in Clio Manage yet" meta="Comes over from Clio Grow with Convert to Clio Manage." />

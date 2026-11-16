@@ -154,7 +154,7 @@ export async function lookupLeadInClio(lead: IntakeLead): Promise<ClioLookup> {
   const status = await clioStatus()
   if (!status.connected) return { state: "not_connected" }
   try {
-    // A client staff set on the lead (Wrong client?) stays; else search by email and phone.
+    // The contact already linked to the lead (by the sync or Wrong client?) stays; else search by email and phone.
     const saved = lead.clio_client_contact_id ? await clioContact(lead.clio_client_contact_id).catch(() => null) : null
     const { contact, matchedBy } = saved ? { contact: saved, matchedBy: "staff" as const } : await findClioContact(lead)
     const matters = contact ? await contactMatters(contact.id) : []
