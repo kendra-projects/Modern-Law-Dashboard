@@ -7,14 +7,16 @@
  * "Intake by which Team Member" options (field 12016550): the named intake
  * staff. "Other"/"Client" there are not real advocates, so they're left out.
  */
-export const ADVOCATES = ["Shane", "Mia", "Mandie", "Linda", "Harsha", "Erick", "Isack", "Kendra"] as const
+// Mandie (Mandie Alean) left the team on 16 Nov 2026: leads still assigned to her
+// read as unassigned, so they wait for a current advocate.
+export const ADVOCATES = ["Shane", "Mia", "Linda", "Harsha", "Erick", "Isack", "Kendra"] as const
 
 /**
  * The intake advocates the automatic free pick chooses from. Kendra also
  * acts as the advocate on consults she handles (the Grow matter is assigned to
  * her and she names herself in Slack), but only when Grow or staff say so.
  */
-export const PICK_ADVOCATES = ["Shane", "Mia", "Mandie", "Linda", "Harsha", "Erick", "Isack"] as const
+export const PICK_ADVOCATES = ["Shane", "Mia", "Linda", "Harsha", "Erick", "Isack"] as const
 
 /** One of the advocates (Acuity's "Client" and "Other" are not). */
 export const isAdvocate = (name: string | null | undefined) => Boolean(name && (ADVOCATES as readonly string[]).includes(name))
@@ -23,7 +25,6 @@ export const isAdvocate = (name: string | null | undefined) => Boolean(name && (
 export const ADVOCATE_CLIO_NAMES: Record<string, string> = {
   Shane: "Shane Harper",
   Mia: "Mia Damon",
-  Mandie: "Mandie Alean",
   Linda: "Linda Diamond",
   Harsha: "Harsha Kosuru",
   Erick: "Erick Garcia",
