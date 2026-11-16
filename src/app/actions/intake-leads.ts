@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import type { TablesInsert } from "@/types/database"
 import { getRole, canSeeIntake } from "@/lib/role"
-import { createFollowUpTasks, lookupLeadInClio, sendClioPortalInvite } from "@/lib/clio-intake"
+import { createFollowUpTasks, lookupLeadInClio, matterWithClient, sendClioPortalInvite, splitName } from "@/lib/clio-intake"
 import { consultDay, followUpPlan } from "@/lib/follow-ups"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
@@ -646,6 +646,74 @@ export async function linkClioMatter(leadId: string, matterId: string): Promise<
   revalidatePath(`/intake/${leadId}`)
   revalidatePath("/intake")
   return { ok: true, message: `Linked to Clio matter ${matter.display_number}.${autoIntakeMessage(auto)}` }
+}
+
+// ── Wrong client ────────────────────────────────────────────────────────────
+// Someone booked for another person (a son for his mother), so the lead has
+// the booker's name, and the Clio contact found by email is the booker's.
+// Staff paste the Clio Manage matter that's under the real client: the lead
+// takes that client's name, contact (and their email and phone, when Clio has
+// them) and the matter. Only our own tables change: nothing is written to Clio.
+// An Acuity reschedule keeps it (lib/acuity.ts).
+
+const CLIENT_CHANGED = "client_changed"
+
+export async function changeLeadClient(leadId: string, matterRef: string): Promise<ActionResult> {
+  const { supabase, user } = await requireUser()
+  if (!user) return { ok: false, message: "Not authenticated." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+
+  const { data: lead } = await supabase.from("intake_leads").select("*").eq("id", leadId).maybeSingle()
+  if (!lead) return { ok: false, message: "Lead not found." }
+  if (lead.status === "canceled" || lead.status === "stopped") return { ok: false, message: `This lead is ${lead.status}.` }
+
+  let matter: Awaited<ReturnType<typeof matterWithClient>>
+  try {
+    matter = await matterWithClient(matterRef)
+  } catch (e) {
+    return { ok: false, message: `Couldn't read that matter in Clio (${e instanceof Error ? e.message.slice(0, 120) : "error"}).` }
+  }
+  if (!matter) return { ok: false, message: "Paste the Clio Manage matter's link (app.clio.com/…/matters/…)." }
+  const client = matter.client
+  if (!client) return { ok: false, message: `Matter ${matter.display_number} has no client in Clio.` }
+  if (matter.status === "Closed") return { ok: false, message: `Matter ${matter.display_number} is closed.` }
+
+  const split = splitName(client.name)
+  const name = client.first_name || client.last_name
+    ? { first: client.first_name ?? "", last: client.last_name ?? "" }
+    : { first: split.first_name, last: split.last_name }
+  const from = [lead.client_first, lead.client_last].filter(Boolean).join(" ")
+  const to = [name.first, name.last].filter(Boolean).join(" ")
+  await supabase
+    .from("intake_leads")
+    .update({
+      client_first: name.first || null,
+      client_last: name.last || null,
+      ...(client.primary_email_address ? { email: client.primary_email_address } : {}),
+      ...(client.primary_phone_number ? { phone: client.primary_phone_number } : {}),
+      clio_client_contact_id: String(client.id),
+      clio_matter_id: String(matter.id),
+      ...(EARLY_STATUSES.includes(lead.status) ? { status: "matter_created" as const } : {}),
+    })
+    .eq("id", leadId)
+  await logStep(supabase, {
+    lead_id: leadId,
+    step_key: CLIENT_CHANGED,
+    state: "done",
+    detail: { from, to, booked_by: from, contact_id: client.id, matter_id: matter.id, display: matter.display_number, by: user.email ?? user.id },
+  })
+  await logStep(supabase, {
+    lead_id: leadId,
+    step_key: "clio_matter",
+    state: "done",
+    detail: { matter_id: matter.id, display: matter.display_number, action: "linked", by: user.email ?? user.id },
+  })
+  await clearFailure(supabase, leadId, "clio_create")
+
+  const auto = await runAutoIntake(leadId).catch(() => null)
+  revalidatePath(`/intake/${leadId}`)
+  revalidatePath("/intake")
+  return { ok: true, message: `Client is now ${to}, on Clio matter ${matter.display_number}.${autoIntakeMessage(auto)}` }
 }
 
 /**

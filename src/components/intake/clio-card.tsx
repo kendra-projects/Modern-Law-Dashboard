@@ -6,6 +6,7 @@ import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ClioLinkButton } from "@/components/intake/clio-link-button"
+import { ChangeClientForm } from "@/components/intake/change-client-form"
 import { cn } from "@/lib/utils"
 
 // The lead page's Clio step: is this person in Clio, which matter is the
@@ -134,11 +135,12 @@ export async function ClioStep({
               icon={UserRound}
               tone="success"
               title={r.contact.name}
-              meta={`Matched by ${r.matchedBy} · added ${fmtDate(r.contact.created_at)}${r.contact.is_client ? " · client" : ""}`}
+              meta={`${r.matchedBy === "staff" ? "Set by staff" : `Matched by ${r.matchedBy}`} · added ${fmtDate(r.contact.created_at)}${r.contact.is_client ? " · client" : ""}`}
             />
           ) : (
             <Tile icon={UserPlus} tone="muted" title="Not in Clio Manage yet" meta="Comes over from Clio Grow with Convert to Clio Manage." />
           )}
+          {!closed && <div className="mt-2"><ChangeClientForm leadId={lead.id} /></div>}
         </div>
 
         <div className="min-w-0">

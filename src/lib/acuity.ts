@@ -168,6 +168,9 @@ export async function enrichLeadFromAcuity(
     const { data: now } = await admin.from("intake_leads").select("assigned_advocate").eq("id", leadId).maybeSingle()
     if (isAdvocate(now?.assigned_advocate)) delete patch.assigned_advocate
   }
+  // Staff set the real client (Wrong client?): a reschedule keeps them, not the booker.
+  const { data: changed } = await admin.from("intake_steps").select("id").eq("lead_id", leadId).eq("step_key", "client_changed").limit(1)
+  if (changed?.length) for (const k of ["client_first", "client_last", "email", "phone"] as const) delete (patch as Record<string, unknown>)[k]
   const { error } = await admin
     .from("intake_leads")
     .update({

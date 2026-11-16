@@ -66,6 +66,35 @@ export async function findClioContact(lead: Pick<IntakeLead, "email" | "phone" |
   return { contact: null, matchedBy: null, other }
 }
 
+const CONTACT_FIELDS = "id,name,type,is_client,created_at,primary_email_address,primary_phone_number"
+
+/** One Clio contact by id. */
+export async function clioContact(id: string | number) {
+  return (await clioFetch<{ data: ClioContact }>(`/api/v4/contacts/${id}?fields=${CONTACT_FIELDS}`)).data
+}
+
+/**
+ * A Clio Manage matter and its client, from a matter link or id. For a booking
+ * made by someone else (a son booking for his mother): the matter Clio has is
+ * under the real client.
+ */
+export async function matterWithClient(ref: string) {
+  const id = ref.match(/matters\/(\d+)/)?.[1] ?? ref.trim().match(/^\d+$/)?.[0]
+  if (!id) return null
+  const fields = "id,display_number,status,client{id,name,first_name,last_name,primary_email_address,primary_phone_number}"
+  const m = (
+    await clioFetch<{
+      data: {
+        id: number
+        display_number: string
+        status: string
+        client?: { id: number; name: string; first_name?: string | null; last_name?: string | null; primary_email_address?: string | null; primary_phone_number?: string | null } | null
+      }
+    }>(`/api/v4/matters/${id}?fields=${encodeURIComponent(fields)}`)
+  ).data
+  return m
+}
+
 export async function contactMatters(contactId: number) {
   const fields = "id,display_number,description,status,open_date,created_at,practice_area{name}"
   return (
@@ -115,7 +144,7 @@ export type ClioLookup =
   | {
       state: "ok"
       contact: ClioContact | null
-      matchedBy: "email" | "phone" | null
+      matchedBy: "email" | "phone" | "staff" | null
       matters: ClioMatter[]
       /** A matter opened for this person recently: likely already made by staff. */
       recentMatter: ClioMatter | null
@@ -125,7 +154,9 @@ export async function lookupLeadInClio(lead: IntakeLead): Promise<ClioLookup> {
   const status = await clioStatus()
   if (!status.connected) return { state: "not_connected" }
   try {
-    const { contact, matchedBy } = await findClioContact(lead)
+    // A client staff set on the lead (Wrong client?) stays; else search by email and phone.
+    const saved = lead.clio_client_contact_id ? await clioContact(lead.clio_client_contact_id).catch(() => null) : null
+    const { contact, matchedBy } = saved ? { contact: saved, matchedBy: "staff" as const } : await findClioContact(lead)
     const matters = contact ? await contactMatters(contact.id) : []
     const since = Date.now() - 21 * 24 * 60 * 60 * 1000
     const recentMatter = matters.find((m) => new Date(m.created_at).getTime() >= since) ?? null

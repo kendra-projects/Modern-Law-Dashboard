@@ -43,6 +43,10 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     if (r.decision === "new") return "Returning client, new case: the bot makes a new matter"
     return "Not a returning client: no open matters in Clio"
   }
+  if (s.step_key === "client_changed") {
+    const c = (s.detail ?? {}) as { from?: string; to?: string; display?: string }
+    return `Client changed from ${c.from || "the booker"} to ${c.to ?? "the Clio client"} (matter ${c.display ?? ""})`.replace(" ()", "")
+  }
   if (s.step_key === "acuity_contact_hidden") {
     const h = (s.detail ?? {}) as { sent_to?: string; restored?: string; restore_failed?: string }
     if (s.state === "failed") return "Couldn't redirect Acuity's reminders: turn them off in Acuity by hand"
