@@ -111,6 +111,7 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
                 : "no opposing party to search"
           }`
     case "clio_contact":
+      if ((d as { duplicate?: boolean }).duplicate) return "Found in Clio: the matter is under a second contact for this client (merge them in Clio)"
       return d.action === "created"
         ? "Clio contact created"
         : d.action === "detected"

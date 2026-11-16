@@ -95,6 +95,31 @@ export async function matterWithClient(ref: string) {
   return m
 }
 
+/**
+ * Other Clio contacts for the same person: the client's own name and the same
+ * email or phone. Converting in Clio Grow can make a new contact for someone
+ * who already had one, so the consult's matter ends up under the new contact
+ * (Steven Hitt, 16 Nov 2026). At most two, to stay inside Clio's rate limit.
+ */
+export async function sameClientContacts(
+  lead: Pick<IntakeLead, "email" | "phone" | "client_first" | "client_last">,
+  exceptId: string | number
+): Promise<ClioContact[]> {
+  const search = async (q: string) =>
+    (await clioFetch<{ data: ClioContact[] }>(`/api/v4/contacts?query=${encodeURIComponent(q)}&fields=${CONTACT_FIELDS}&limit=10`)).data
+  const found = new Map<number, ClioContact>()
+  const keep = (c: ClioContact) =>
+    String(c.id) !== String(exceptId) && c.type !== "Company" && !nameDiffers(lead.client_first, lead.client_last, c.name)
+  const email = lead.email?.trim().toLowerCase()
+  if (email)
+    for (const c of await search(email))
+      if (c.primary_email_address?.trim().toLowerCase() === email && keep(c)) found.set(c.id, c)
+  const phone = digits(lead.phone)
+  if (phone.length === 10)
+    for (const c of await search(phone)) if (digits(c.primary_phone_number) === phone && keep(c)) found.set(c.id, c)
+  return Array.from(found.values()).slice(0, 2)
+}
+
 export async function contactMatters(contactId: number) {
   const fields = "id,display_number,description,status,open_date,created_at,practice_area{name}"
   return (

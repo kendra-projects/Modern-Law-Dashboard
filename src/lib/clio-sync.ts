@@ -1,7 +1,7 @@
 import "server-only"
 
 import { clioFetch, clioStatus } from "@/lib/clio"
-import { contactMatters, findClioContact, matterTaskNames } from "@/lib/clio-intake"
+import { contactMatters, findClioContact, matterTaskNames, sameClientContacts, type ClioMatter } from "@/lib/clio-intake"
 import { FOLLOW_UPS } from "@/lib/follow-ups"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
@@ -50,15 +50,34 @@ export async function syncLeadFromClio(lead: Lead): Promise<string[]> {
     // booking. Only link when exactly one fits; otherwise staff pick it with the
     // Link button on the lead page, which shows every matter.
     const since = new Date(lead.created_at).getTime() - 3 * DAY
-    const fits = (await contactMatters(Number(contactId))).filter(
-      (m) => new Date(m.created_at).getTime() >= since && m.status !== "Closed"
-    )
+    const fitting = (list: ClioMatter[]) => list.filter((m) => new Date(m.created_at).getTime() >= since && m.status !== "Closed")
+    let fits = fitting(await contactMatters(Number(contactId)))
+    // None under the contact we have: converting in Grow may have made a second
+    // contact for the same person, with the matter under it. Then the matter's
+    // contact becomes the lead's (the portal goes to the matter's client).
+    let matterContact = contactId
+    if (!fits.length) {
+      const all: { contact: string; matter: ClioMatter }[] = []
+      for (const c of await sameClientContacts(lead, contactId))
+        for (const m of fitting(await contactMatters(c.id))) all.push({ contact: String(c.id), matter: m })
+      if (all.length === 1) {
+        fits = [all[0].matter]
+        matterContact = all[0].contact
+      }
+    }
     if (fits.length === 1) {
       matterId = String(fits[0].id)
+      const moved = matterContact !== contactId
+      contactId = matterContact
       await admin
         .from("intake_leads")
-        .update({ clio_matter_id: matterId, ...(EARLY.includes(lead.status) ? { status: "matter_created" as const } : {}) })
+        .update({
+          clio_matter_id: matterId,
+          ...(moved ? { clio_client_contact_id: contactId } : {}),
+          ...(EARLY.includes(lead.status) ? { status: "matter_created" as const } : {}),
+        })
         .eq("id", lead.id)
+      if (moved) await log("clio_contact", { contact_id: Number(contactId), duplicate: true })
       await log("clio_matter", { matter_id: fits[0].id, display: fits[0].display_number })
       // Staff made it in Clio themselves, so a failed automatic create is settled.
       await clearFailure(admin, lead.id, "clio_create")
