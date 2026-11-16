@@ -11,6 +11,7 @@ import { checkReturningClient, growMayProceed, returningState } from "@/lib/retu
 import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
+import { clientSetByStaff } from "@/lib/intake-steps"
 import { growContactId, type GrowLead } from "@/lib/grow-sync"
 import { autoSignoff, runAutoIntake } from "@/lib/auto-intake"
 import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
@@ -270,7 +271,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
       consult > Date.now()
     ) {
       const grow = growState(rows).noted
-      if (grow && nameDiffers(lead.client_first, lead.client_last, grow.clientName)) continue
+      if (grow && !clientSetByStaff(rows) && nameDiffers(lead.client_first, lead.client_last, grow.clientName)) continue
       const appt = (appts ?? []).find((a) => a.lead_id === lead.id)
       const { location } = await consultLocation(admin, lead, appt?.location ?? null)
       const sms = confirmationText({

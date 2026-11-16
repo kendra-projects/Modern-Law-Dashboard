@@ -322,3 +322,11 @@ export function stepCategory(key: string): StepCategory {
   if (key.startsWith("slack_") || key === "lexi_followups" || key === "lexi_email" || key === "text_email" || key === "matter_email" || key === "advocate_email" || key === "conflict_check" || key === "conflict_reopened" || key === "conflict_search" || key === "conflict_email" || key.startsWith("advocate_") || key === "final_signoff") return "decision"
   return "system"
 }
+
+/**
+ * Staff set the lead's client by hand ("Wrong client?" on the lead page: the
+ * booker isn't the client). The dashboard's name is then the confirmed one,
+ * and a Grow lead still under the booker's name doesn't hold up the text or
+ * the Slack post (Kendra, 16 Nov 2026: Deborah Reitenauer, booked by her son).
+ */
+export const clientSetByStaff = (steps: Pick<IntakeStep, "step_key">[]) => steps.some((s) => s.step_key === "client_changed")

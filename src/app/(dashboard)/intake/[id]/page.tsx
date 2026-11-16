@@ -12,7 +12,7 @@ import { ClioSyncPing } from "@/components/intake/clio-sync-ping"
 import { followUpPlan, manageFollowUpsOn } from "@/lib/follow-ups"
 import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { CLIO_APP } from "@/lib/clio-intake"
-import { describeStep } from "@/lib/intake-steps"
+import { clientSetByStaff, describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
 import { consultLocation } from "@/lib/attorney-zoom"
 import { consultPost } from "@/lib/consult-post"
@@ -145,7 +145,9 @@ export default async function IntakeDetailPage({
         matterUrl: growMatterUrl(grow.noted.matterId),
         who: [grow.noted.by ? grow.noted.by.split("@")[0] : "added automatically", day(grow.noted.at)].join(", "),
         nameWarning: growNameDiffers
-          ? `The booking says "${fullName(lead.client_first, lead.client_last)}" but Grow has "${grow.noted.clientName}". Check which spelling is right before the text, the portal invite or the Slack post goes out.`
+          ? clientSetByStaff(allSteps)
+            ? `Grow still has "${grow.noted.clientName}", the person who booked. Staff set the client to ${fullName(lead.client_first, lead.client_last)}, so the text and Slack post go out under that name; rename the Grow lead when you can.`
+            : `The booking says "${fullName(lead.client_first, lead.client_last)}" but Grow has "${grow.noted.clientName}". Check which spelling is right before the text, the portal invite or the Slack post goes out.`
           : null,
       }
     : null
@@ -276,7 +278,7 @@ export default async function IntakeDetailPage({
             title: "Booking note in Clio Grow",
             ok: grow.noted ? true : grow.failed || grow.match?.result === "several" ? false : ("waiting" as const),
             summary: grow.noted
-              ? growNameDiffers
+              ? growNameDiffers && !clientSetByStaff(allSteps)
                 ? "Name differs in Grow"
                 : whoWhen("grow_note")
               : grow.match?.result === "several"

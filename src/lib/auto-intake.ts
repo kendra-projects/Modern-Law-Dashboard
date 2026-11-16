@@ -21,6 +21,7 @@ import { consultPost, postMentions, slackEscape } from "@/lib/consult-post"
 import { consultDay, followUpPlan, manageFollowUpsOn } from "@/lib/follow-ups"
 import { advocateFromGrow, advocateSettled, BY_GROW } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
+import { clientSetByStaff } from "@/lib/intake-steps"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
@@ -293,7 +294,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   // team under a name that might be wrong.
   const grow = growState(s.steps).noted
   const nameIssue =
-    grow && nameDiffers(lead.client_first, lead.client_last, grow.clientName)
+    grow && !clientSetByStaff(s.steps) && nameDiffers(lead.client_first, lead.client_last, grow.clientName)
       ? `Clio Grow spells the name "${grow.clientName}"`
       : null
 
