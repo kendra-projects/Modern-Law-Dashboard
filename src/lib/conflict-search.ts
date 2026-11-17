@@ -224,6 +224,22 @@ export async function searchConflicts(lead: Lead): Promise<ConflictSearch> {
   }
   const searched = ["Clio Manage"]
 
+  // An opposing party Grow finds but the Manage search missed (a contact made
+  // minutes ago isn't in Manage's search yet): this consult's own record when,
+  // in Manage, it is the opposing party on this consult's matter and has no
+  // other tie to the firm (Stacey Castro, 17 Nov 2026: the bot added Gabriel
+  // Castro to her matter and the search stopped on him). Anything else, or a
+  // Clio error, leaves it for a person.
+  const opposingOnThisMatter = async (clioId: number | null | undefined) => {
+    if (clioId == null || matterId == null) return false
+    const r = await manageRecords(clioId).catch(() => null)
+    if (!r || r.matters.length) return false
+    const onThis = r.rels.filter((x) => x.matter?.id === matterId)
+    const elsewhere = r.rels.filter((x) => x.matter && x.matter.id !== matterId)
+    const clientsOwn = (x: Relationship) => x.matter?.client?.id != null && x.matter.client.id === ownId && opposingRole(x.description)
+    return onThis.some((x) => opposingRole(x.description)) && elsewhere.every(clientsOwn)
+  }
+
   // ── Clio Grow: who the firm has spoken to, and how Grow files them ──
   if ((await growStatus()).connected) {
     try {
@@ -239,10 +255,11 @@ export async function searchConflicts(lead: Lead): Promise<ConflictSearch> {
             continue
           }
           const self =
-            side === "client" &&
-            ((g.clio_id != null && g.clio_id === ownId) ||
-              (g.emails ?? []).some((e) => email && e.toLowerCase() === email) ||
-              (g.phone_numbers ?? []).some((p) => phone.length === 10 && digits(p) === phone))
+            side === "client"
+              ? (g.clio_id != null && g.clio_id === ownId) ||
+                (g.emails ?? []).some((e) => email && e.toLowerCase() === email) ||
+                (g.phone_numbers ?? []).some((p) => phone.length === 10 && digits(p) === phone)
+              : await opposingOnThisMatter(g.clio_id)
           hits.push({ side, name: g.name ?? name, url: g.clio_id ? contactUrl(g.clio_id) : null, self, flag, roles: [role] })
         }
       }
