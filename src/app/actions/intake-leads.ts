@@ -19,6 +19,9 @@ import { CONFLICT_SEARCH, runConflictSearch, type ConflictSearch } from "@/lib/c
 import { conflictSearchLine } from "@/lib/intake-steps"
 import { holdEmail, onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { hideAcuityContact, restoreAcuityContact } from "@/lib/acuity-hold-contact"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { fetchAcuityAppointment, isConsultType, upsertAppointment } from "@/lib/acuity"
+import { startAcuityLead } from "@/lib/acuity-lead"
 import { RETURNING, RETURNING_MESSAGE, returningState, type ReturningDetail } from "@/lib/returning-client"
 
 export type ActionResult = { ok: boolean; message: string }
@@ -78,7 +81,9 @@ export async function setConflictDecision(
     .eq("step_key", CONFLICT_SEARCH)
     .maybeSingle()
   const found = search?.detail as ConflictSearch | null
-  await supabase.from("intake_steps").insert({
+  // logStep, not insert: after a reopen the conflict_check row already exists,
+  // and a plain insert would fail silently and lose who cleared it and when.
+  await logStep(supabase, {
     lead_id: leadId,
     step_key: "conflict_check",
     state: cleared ? "done" : "failed",
@@ -279,7 +284,7 @@ export async function approveIntake(leadId: string): Promise<ActionResult> {
   const { error } = await supabase.from("intake_leads").update({ status: "done" }).eq("id", leadId)
   if (error) return { ok: false, message: "Could not save the approval." }
 
-  await supabase.from("intake_steps").insert({
+  await logStep(supabase, {
     lead_id: leadId,
     step_key: "final_signoff",
     state: "done",
@@ -826,4 +831,37 @@ export async function createManualLead(formData: FormData): Promise<void> {
   revalidatePath("/intake")
   revalidatePath("/")
   redirect(data?.id ? `/intake/${data.id}` : "/intake")
+}
+
+/**
+ * "Start intake" on the Appointments page: an upcoming consult that has no lead
+ * (booked before its type counted as a consult, e.g. the free discovery
+ * sessions) gets one now, and the same automation as a new booking runs on it.
+ */
+export async function startIntakeFromAppointment(acuityId: string): Promise<ActionResult> {
+  const { user } = await requireUser()
+  if (!user) return { ok: false, message: "Sign in again." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+  const admin = createAdminClient()
+  if (!admin) return { ok: false, message: "Server not configured." }
+
+  const { data: existing } = await admin
+    .from("intake_leads")
+    .select("id")
+    .eq("source", "acuity")
+    .eq("external_id", acuityId)
+    .maybeSingle()
+  if (existing) return { ok: true, message: "This booking already has a lead." }
+
+  const appt = await fetchAcuityAppointment(acuityId)
+  if (!appt) return { ok: false, message: "Couldn't load the booking from Acuity. Try again in a minute." }
+  if (appt.canceled) return { ok: false, message: "This booking was canceled in Acuity." }
+  if (!isConsultType(appt.type)) return { ok: false, message: "This booking isn't a consultation." }
+  await upsertAppointment(appt).catch(() => {})
+
+  const made = await startAcuityLead(admin, acuityId, appt, { source: "appointments_page", id: acuityId })
+  if (!made.id) return { ok: false, message: made.error ?? "Couldn't create the lead." }
+  revalidatePath("/intake/appointments")
+  revalidatePath("/intake")
+  return { ok: true, message: "Intake started." }
 }

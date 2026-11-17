@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server"
 import type { Appointment } from "@/types/database"
 import { cn } from "@/lib/utils"
 import { AppointmentsListSkeleton } from "@/components/intake/intake-skeletons"
+import { StartIntakeButton } from "@/components/intake/start-intake-button"
+import { isConsultType } from "@/lib/acuity"
 import {
   FilterTransition,
   FilterLink,
@@ -29,7 +31,7 @@ const KINDS: { key: Kind; label: string }[] = [
 ]
 
 function kindOf(a: Appointment): Exclude<Kind, "all"> {
-  if (a.is_consult) return "consult"
+  if (a.is_consult || isConsultType(a.type ?? undefined)) return "consult"
   if (/follow[\s-]?up/i.test(a.type ?? "")) return "followup"
   return "other"
 }
@@ -79,9 +81,11 @@ export default async function AppointmentsPage({
   q = view === "upcoming"
     ? q.gte("datetime", today).order("datetime", { ascending: true })
     : q.lt("datetime", today).order("datetime", { ascending: false })
-  if (kind === "consult") q = q.eq("is_consult", true)
+  // Discovery sessions booked before they counted as consults are stored with
+  // is_consult false; the type name puts them under Consults all the same.
+  if (kind === "consult") q = q.or("is_consult.eq.true,type.ilike.%discovery session%")
   if (kind === "followup") q = q.eq("is_consult", false).ilike("type", "%follow%")
-  if (kind === "other") q = q.eq("is_consult", false).not("type", "ilike", "%follow%")
+  if (kind === "other") q = q.eq("is_consult", false).not("type", "ilike", "%follow%").not("type", "ilike", "%discovery session%")
   if (attorney) q = q.eq("attorney", attorney)
   const { data } = await q.limit(400)
   const rows = (data ?? []).filter((a) => a.datetime) as unknown as (Appointment & { datetime: string })[]
@@ -245,6 +249,9 @@ export default async function AppointmentsPage({
                             >
                               <Video className="h-3.5 w-3.5" /> Join
                             </a>
+                          )}
+                          {!a.lead_id && !a.canceled && kindOf(a) === "consult" && a.datetime && new Date(a.datetime).getTime() > Date.now() && (
+                            <StartIntakeButton acuityId={a.acuity_id} />
                           )}
                           {a.lead_id && (
                             <Link

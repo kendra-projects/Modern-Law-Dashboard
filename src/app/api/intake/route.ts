@@ -6,34 +6,15 @@ import {
   isConsultType,
   upsertAppointment,
 } from "@/lib/acuity"
-import { syncGrowForLead } from "@/lib/grow-sync"
 import { runAutoIntake } from "@/lib/auto-intake"
 import { wakeBotFor } from "@/lib/bot"
-import { markLexiBooked } from "@/lib/lexi-followups"
-import { runConflictSearch } from "@/lib/conflict-search"
-import { sendSelfScheduleAlert } from "@/lib/self-schedule-alert"
 import { holdFromAcuity } from "@/lib/safety-hold"
 import { hideAcuityContact } from "@/lib/acuity-hold-contact"
-import type { Json } from "@/types/database"
+import { growNoteSoon, startAcuityLead } from "@/lib/acuity-lead"
 
 export const dynamic = "force-dynamic"
 // The automatic intake steps (Clio, portal, Slack, tasks) run inside the request.
 export const maxDuration = 60
-
-/**
- * The booking note on the client's Clio Grow matter, right away when the
- * matter is already there. Capped at a few seconds so Acuity gets its answer
- * quickly; whatever doesn't finish, the regular sync picks up (it never posts
- * the same note twice).
- */
-async function growNoteSoon(leadId: string) {
-  await Promise.race([syncGrowForLead(leadId).catch(() => []), new Promise((r) => setTimeout(r, 8000))])
-}
-
-/** The conflict search for a self-scheduled booking, before its #clientadvocates alert. Same cap. */
-async function conflictSearchSoon(leadId: string) {
-  await Promise.race([runConflictSearch(leadId).catch(() => null), new Promise((r) => setTimeout(r, 8000))])
-}
 
 /**
  * Intake webhook — now Acuity-first.
@@ -149,48 +130,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: "not a consultation", type: appt.type ?? null })
   }
 
-  // New consult → new lead. If the lookup failed (Acuity down), still record the
-  // lead so nothing is lost; enrich retries on the next update.
-  const { data: created, error } = await admin
-    .from("intake_leads")
-    .insert({
-      source: "acuity",
-      external_id: appointmentId,
-      status: "received",
-      raw_payload: { source: "acuity_webhook", ...data } as unknown as Json,
-    })
-    .select("id")
-    .maybeSingle()
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  // New consult → new lead, and the intake automation starts on it.
+  const created = await startAcuityLead(admin, appointmentId, appt, { source: "acuity_webhook", ...data })
+  if (created.error) {
+    return NextResponse.json({ error: created.error }, { status: 500 })
   }
-
-  if (created?.id) {
-    // First, before any automation: a safety concern answered when booking puts
-    // the lead on hold (lib/safety-hold.ts).
-    if (await holdFromAcuity(admin, created.id, appt).catch(() => false))
-      await hideAcuityContact(admin, created.id, "Acuity booking form").catch(() => "failed")
-    try {
-      await enrichLeadFromAcuity(created.id, appointmentId, appt)
-      if (appt) await upsertAppointment(appt, { leadId: created.id })
-    } catch {
-      /* best-effort */
-    }
-    // Booked through Lexi: LexiDesk stops its own follow-ups.
-    await markLexiBooked(created.id).catch(() => 0)
-    // The #clientadvocates heads-up for a consult the client booked themselves,
-    // with what the conflict search found in Clio.
-    await conflictSearchSoon(created.id)
-    await sendSelfScheduleAlert(created.id).catch(() => {})
-    await growNoteSoon(created.id)
-    // Staff-booked consults arrive with the conflict check done and the
-    // advocate named, so the rest of the intake can happen right away.
-    await runAutoIntake(created.id).catch(() => null)
-    // The bot pauses Lexi right away, and sends the text once the lead is ready.
-    await wakeBotFor(created.id).catch(() => false)
-  }
-  return NextResponse.json({ ok: true, id: created?.id ?? null })
+  return NextResponse.json({ ok: true, id: created.id })
 }
 
 export function GET() {

@@ -41,11 +41,12 @@ export type AcuityAppointment = {
  * Only new consultations become intake leads. Acuity fires the webhook for every
  * appointment type, including existing clients' follow-ups and internal
  * meetings, which must be ignored. Consult types are the "…Consultation…" ones
- * (IC) and "Limited Scope Strategy Session…" (LSS).
+ * (IC), "Limited Scope Strategy Session…" (LSS) and the free "Discovery
+ * Session with Linda/Shane…" ones (run as an IC).
  */
 export function isConsultType(type: string | undefined): boolean {
   if (!type) return false
-  return /(consultation|strategy session)/i.test(type) && !/follow[\s-]?up/i.test(type)
+  return /(consultation|strategy session|discovery session)/i.test(type) && !/follow[\s-]?up/i.test(type)
 }
 
 /** "Hillary Ryan • Family Law Attorney" / "Richard Nedlin - Attorney" → the name. */
