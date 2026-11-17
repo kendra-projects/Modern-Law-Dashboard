@@ -234,10 +234,13 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     const rows = ((steps ?? []) as Steps).filter((s) => s.lead_id === lead.id)
     const consult = lead.consult_datetime ? new Date(lead.consult_datetime).getTime() : null
     const client = fullName(lead)
+    // Signed off: only the Grow checklist ticks are left to catch up on.
+    const signedOff = lead.status === "done"
 
     // A consult Lexi booked has its follow-ups stopped by LexiDesk itself
     // (lib/lexi-followups.ts); any other booking may still have them running.
     if (
+      !signedOff &&
       inRange(lead, "lexi") &&
       !settled(rows, "lexi") &&
       !lexiConversationUrl(lead) &&
@@ -257,6 +260,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     // the advocate who signs it, the matter it is sent from, a consult still
     // ahead, every detail filled in, and one spelling of the client's name.
     if (
+      !signedOff &&
       inRange(lead, "text") &&
       contactWaitOver(lead.created_at) &&
       !settled(rows, "text") &&
@@ -309,6 +313,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     // The real client portal, once the matter, a clear conflict check and the final advocate are there.
     const advocate = isAdvocate(lead.assigned_advocate) && advocateSettled(rows) ? ADVOCATE_CLIO_NAMES[lead.assigned_advocate!] : null
     if (
+      !signedOff &&
       inRange(lead, "portal") &&
       contactWaitOver(lead.created_at) &&
       ahead &&
@@ -410,6 +415,7 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
     lead.clio_matter_id && "Convert to Manage",
     done("clio_matter_filled") && "Verify PC and OP as Contacts",
     done("clio_client_portal") && "Invite Potential Client to their Portal",
+    done("calendar_guest") && "Invite PC to IC",
     done("clio_text_sent") && "Text PC via Clio Texting",
     done("slack_posted") && "Send slack message to Initial Consultations",
     lead.county && lead.referral_source && "Verify County and Referral Source",
@@ -455,17 +461,23 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
 }
 
 async function openLeads(admin: Admin, leadId?: string) {
+  // A signed-off ("done") lead stays in until its consult starts, so the Grow
+  // checklist still gets ticks for steps finished in the same run as, or after,
+  // the bot's last Grow pass (tasksFor gives it the Grow job only).
   let q = admin
     .from("intake_leads")
     .select("*")
     .eq("source", "acuity")
-    .not("status", "in", `(${CLOSED.join(",")})`)
+    .not("status", "in", `(${CLOSED.filter((c) => c !== "done").join(",")})`)
     .gte("created_at", botFrom())
     // Past consults are out of every job's window (Lexi's is the widest).
     .or(`consult_datetime.is.null,consult_datetime.gte.${new Date(Date.now() - LEXI_WINDOW).toISOString()}`)
   if (leadId) q = q.eq("id", leadId)
   const { data } = await q.order("consult_datetime", { ascending: true }).limit(200)
-  return (data ?? []) as IntakeLead[]
+  const now = Date.now()
+  return ((data ?? []) as IntakeLead[]).filter(
+    (l) => l.status !== "done" || (l.consult_datetime != null && new Date(l.consult_datetime).getTime() > now)
+  )
 }
 
 /** Everything the bot can do now. Empty when every job is off. Each task says whether it's a test run. */
