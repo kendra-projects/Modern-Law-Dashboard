@@ -12,7 +12,7 @@ import { followUpPlan, growDue } from "@/lib/follow-ups"
 import { advocateSettled, growUserIds } from "@/lib/grow-advocate"
 import { growState, nameDiffers } from "@/lib/grow-note"
 import { clientSetByStaff } from "@/lib/intake-steps"
-import { growContactId, type GrowLead } from "@/lib/grow-sync"
+import { growContactId, growMattersSinceBooking, type GrowLead } from "@/lib/grow-sync"
 import { autoSignoff, runAutoIntake } from "@/lib/auto-intake"
 import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
@@ -377,6 +377,13 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
   let create: Extract<BotTask, { kind: "grow" }>["create"] = null
   const names = [BILLING]
   if (!matterId) {
+    // Never a second matter: once the bot has made one for this booking, or the
+    // client has one made since they booked, wait for the dashboard to note it
+    // (lib/grow-sync.ts) and work that one. A Grow error holds off too.
+    const made = rows.some((s) => s.step_key === DONE_KEY.grow && /create the Grow matter/.test(String((s.detail as { note?: string } | null)?.note ?? "")))
+    if (made) return null
+    const since = await growMattersSinceBooking(lead as unknown as GrowLead).catch(() => null)
+    if (since === null || since.length) return null
     // A new matter needs someone assigned: Acuity's advocate, else whoever is free.
     const assignee = advocate ?? (await pickAdvocate(admin).then((p) => (p.advocate ? ADVOCATE_CLIO_NAMES[p.advocate] : null)).catch(() => null))
     if (!assignee) return null

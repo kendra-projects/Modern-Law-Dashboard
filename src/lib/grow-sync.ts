@@ -101,16 +101,32 @@ export async function growContactId(lead: GrowLead): Promise<string | null> {
  * matters are offered to staff but never picked on their own (a returning
  * client's new consult usually gets a new matter).
  */
-function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<string | number>) {
+function clientsMatters(lead: GrowLead, matters: GrowMatter[], ids: Set<string | number>) {
   const email = lead.email?.trim().toLowerCase() || null
   const phone = digits(lead.phone)
-  const mine = matters.filter(
+  return matters.filter(
     (m) =>
       m.client &&
       (ids.has(m.client.id) ||
         (email && m.client.primary_email?.toLowerCase() === email) ||
         (phone.length === 10 && digits(m.client.phone_number) === phone))
   )
+}
+
+/**
+ * The client's Grow matters made since this booking came in. The bot checks
+ * before it creates one, so a second run never makes a second matter (Stacey
+ * Castro, 17 Nov 2026: two identical matters, both converted to Manage, because
+ * the bot doesn't report which matter it made and the next run looked again).
+ */
+export async function growMattersSinceBooking(lead: GrowLead): Promise<string[]> {
+  const since = new Date(new Date(lead.created_at).getTime() - 60 * 60 * 1000)
+  const [matters, ids] = await Promise.all([mattersCreatedSince(since), contactIds(lead)])
+  return clientsMatters(lead, matters, ids).map((m) => String(m.id))
+}
+
+function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<string | number>) {
+  const mine = clientsMatters(lead, matters, ids)
   const intake = mine.filter((m) => (m.status_category ?? "intake").toLowerCase() === "intake")
   let matter: GrowMatter | null = intake.length === 1 ? intake[0] : null
   if (intake.length > 1) {
