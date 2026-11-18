@@ -10,7 +10,8 @@ import { consultDay, followUpPlan } from "@/lib/follow-ups"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { PORTAL_SUBJECT, portalInviteText } from "@/lib/client-messages"
 import { postMentions, slackEscape } from "@/lib/consult-post"
-import { INITIAL_CONSULTS_CHANNEL, postToChannel, slackUserIds } from "@/lib/slack"
+import { postToChannel, slackUserIds } from "@/lib/slack"
+import { consultChannel } from "@/lib/slack-channels"
 import { addGrowNoteTo } from "@/lib/grow-sync"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
 import { autoIntakeMessage, autoSignoff, runAutoIntake } from "@/lib/auto-intake"
@@ -513,7 +514,8 @@ export async function markClientMessage(leadId: string, kind: "text" | "portal" 
 }
 
 /**
- * Checklist step 10: announce the consult in #initialconsultations. Staff
+ * Checklist step 10: announce the consult in #initialconsultations (a free
+ * discovery session in #clientadvocates). Staff
  * check and edit the drafted text first (the post is the human sign-off);
  * the attorney's and advocate's @names become real mentions here.
  */
@@ -547,12 +549,21 @@ export async function postConsultToSlack(leadId: string, text: string): Promise<
     let body = slackEscape(text.trim())
     for (const p of people) if (ids[p.name]) body = body.split(p.token).join(`<@${ids[p.name]}>`)
 
-    const posted = await postToChannel(INITIAL_CONSULTS_CHANNEL, body)
+    const { data: appt } = await supabase
+      .from("appointments")
+      .select("type")
+      .eq("lead_id", leadId)
+      .eq("canceled", false)
+      .order("datetime", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const channel = consultChannel(appt?.type)
+    const posted = await postToChannel(channel.id, body)
     await logStep(supabase, {
       lead_id: leadId,
       step_key: "slack_posted",
       state: "done",
-      detail: { by, action: "sent", ts: posted.ts, link: posted.link },
+      detail: { by, action: "sent", ts: posted.ts, link: posted.link, channel: channel.id },
     })
     await clearFailure(supabase, leadId, "slack_post")
     revalidatePath(`/intake/${leadId}`)
@@ -560,8 +571,8 @@ export async function postConsultToSlack(leadId: string, text: string): Promise<
     return {
       ok: true,
       message: untagged.length
-        ? `Posted in #initialconsultations. Not found in Slack, so not tagged: ${untagged.join(", ")}.`
-        : "Posted in #initialconsultations.",
+        ? `Posted in ${channel.name}. Not found in Slack, so not tagged: ${untagged.join(", ")}.`
+        : `Posted in ${channel.name}.`,
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Slack post failed."

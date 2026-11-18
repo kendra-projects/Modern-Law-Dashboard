@@ -16,7 +16,8 @@ import type { IntakeLead } from "@/types/database"
 // Self-Schedule Slack Message" posts this today, so the dashboard's copy stays
 // off until SELF_SCHEDULE_ALERT=on and advocates never get it twice. Once per lead.
 
-export const CLIENT_ADVOCATES_CHANNEL = "C08B7R2BH2P"
+export { CLIENT_ADVOCATES_CHANNEL } from "@/lib/slack-channels"
+import { CLIENT_ADVOCATES_CHANNEL } from "@/lib/slack-channels"
 export const selfScheduleAlertOn = () => process.env.SELF_SCHEDULE_ALERT === "on" && slackConfigured()
 
 const TZ = "America/Phoenix"

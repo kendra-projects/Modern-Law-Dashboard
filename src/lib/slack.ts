@@ -7,8 +7,7 @@ import "server-only"
 const API = "https://slack.com/api"
 const WORKSPACE = "https://modernlaw.slack.com"
 
-/** #initialconsultations, where every booked consult is announced to the attorney. */
-export const INITIAL_CONSULTS_CHANNEL = "C43JU08KG"
+export { INITIAL_CONSULTS_CHANNEL, CLIENT_ADVOCATES_CHANNEL } from "@/lib/slack-channels"
 
 export const slackConfigured = () => Boolean(process.env.SLACK_BOT_TOKEN)
 

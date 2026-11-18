@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { ArrowLeft, CalendarClock, Video, Phone, MapPin, Scale, Briefcase, Mail, Smartphone } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ClioStep, ClioStepSkeleton } from "@/components/intake/clio-card"
+import { CLIENT_ADVOCATES_CHANNEL, channelName, consultChannel } from "@/lib/slack-channels"
 import { GrowStep, LexiStep, ConflictStep, AdvocateStep, PortalStep, TextStep, SlackStep, TasksStep, SignoffStep } from "@/components/intake/lead-steps"
 import { LeadView, BookingDetails, type LeadFact } from "@/components/intake/lead-view"
 import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspace"
@@ -67,7 +68,7 @@ export default async function IntakeDetailPage({
       .order("created_at", { ascending: true }),
     supabase
       .from("appointments")
-      .select("datetime, end_time, location, paid:raw->>paid, notes:raw->>notes")
+      .select("datetime, end_time, location, type, paid:raw->>paid, notes:raw->>notes")
       .eq("lead_id", params.id)
       .eq("canceled", false)
       .order("datetime", { ascending: false })
@@ -126,6 +127,9 @@ export default async function IntakeDetailPage({
   })
   const slackStep = lastDone("slack_posted")
   const slackLink = (slackStep?.detail as { link?: string } | null)?.link ?? null
+  // Where the post went, else where it will go: a discovery session's goes to #clientadvocates.
+  const postedIn = (slackStep?.detail as { channel?: string } | null)?.channel
+  const slackChannel = postedIn ? { id: postedIn, name: channelName(postedIn) } : consultChannel(appt?.type)
   const plan = consultAt ? followUpPlan(consultAt) : []
   const matterName = (lastDone("clio_matter")?.detail as { display?: string } | null)?.display
 
@@ -413,11 +417,11 @@ export default async function IntakeDetailPage({
     },
     {
       key: "slack",
-      title: "Initial Consultations post",
+      title: slackChannel.id === CLIENT_ADVOCATES_CHANNEL ? "Client Advocates post" : "Initial Consultations post",
       ok: Boolean(slackStep),
       summary: slackStep ? whoWhen("slack_posted") : "Not posted",
-      description: `Tells the attorney about the consult in Slack's #initialconsultations, in the format the team uses there.${autoLine}`,
-      body: <SlackStep leadId={lead.id} draft={post.text} missing={post.missing} posted={Boolean(slackStep)} link={slackLink} blocker={needsClear} />,
+      description: `Tells the attorney about the consult in Slack's ${slackChannel.name}, in the format the team uses there.${autoLine}`,
+      body: <SlackStep leadId={lead.id} draft={post.text} missing={post.missing} posted={Boolean(slackStep)} link={slackLink} blocker={needsClear} channel={slackChannel.name} />,
     },
     {
       key: "tasks",

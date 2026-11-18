@@ -616,6 +616,7 @@ export function SlackStep({
   posted,
   link,
   blocker,
+  channel,
 }: {
   leadId: string
   draft: string | null
@@ -624,13 +625,15 @@ export function SlackStep({
   /** The post in Slack, once there is one. */
   link: string | null
   blocker: string | null
+  /** "#initialconsultations", or "#clientadvocates" for a discovery session. */
+  channel: string
 }) {
   const { pending, run, note } = useAction()
   const [text, setText] = React.useState(draft ?? "")
   if (posted)
     return (
       <div className="space-y-3">
-        <Hint>Posted in #initialconsultations.</Hint>
+        <Hint>Posted in {channel}.</Hint>
         <Row>
           <OpenLink href={link} label="Open in Slack" />
         </Row>
@@ -653,10 +656,10 @@ export function SlackStep({
           className="h-8 gap-1.5 text-xs"
           disabled={pending || Boolean(blocker) || !text.trim()}
           onClick={() => {
-            if (window.confirm("Post this in #initialconsultations?")) run(() => postConsultToSlack(leadId, text))
+            if (window.confirm(`Post this in ${channel}?`)) run(() => postConsultToSlack(leadId, text))
           }}
         >
-          <Send className="h-3.5 w-3.5" /> {pending ? "Posting…" : "Post to #initialconsultations"}
+          <Send className="h-3.5 w-3.5" /> {pending ? "Posting…" : `Post to ${channel}`}
         </Button>
         <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={pending} onClick={() => run(() => markClientMessage(leadId, "slack"))}>
           Already posted

@@ -1,10 +1,13 @@
 import type { IntakeStep } from "@/types/database"
+import { channelName } from "@/lib/slack-channels"
 
 // Plain-language wording for intake step rows, shared by the lead timeline and
 // the Intake Activity log so the same event always reads the same way.
 
 export type StepDetail = {
   by?: string
+  /** Slack channel id a post went to. */
+  channel?: string
   action?: string
   display?: string
   advocate?: string
@@ -149,12 +152,14 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
         : d.action === "detected"
           ? "Found in Clio: follow-up tasks"
           : "Follow-up tasks created in Clio"
-    case "slack_posted":
+    case "slack_posted": {
+      const where = channelName(d.channel)
       return d.action === "sent"
-        ? "Posted in #initialconsultations from the dashboard"
+        ? `Posted in ${where} from the dashboard`
         : d.action === "detected"
-          ? "Found in Slack: posted in #initialconsultations"
-          : "Posted in #initialconsultations"
+          ? `Found in Slack: posted in ${where}`
+          : `Posted in ${where}`
+    }
     case "slack_post":
       return "Slack post failed"
     case "slack_alert":

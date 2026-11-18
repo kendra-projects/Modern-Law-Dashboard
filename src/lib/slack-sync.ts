@@ -1,12 +1,14 @@
 import "server-only"
 
-import { channelHistory, INITIAL_CONSULTS_CHANNEL, messageLink, slackConfigured } from "@/lib/slack"
+import { channelHistory, messageLink, slackConfigured } from "@/lib/slack"
+import { consultChannel, INITIAL_CONSULTS_CHANNEL } from "@/lib/slack-channels"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { clearFailure } from "@/lib/intake-step-log"
 import type { IntakeLead } from "@/types/database"
 
-// Staff also post consults in #initialconsultations by hand. This finds those
-// posts ("… Scheduled for First Last") so the Slack step shows done either way.
+// Staff also post consults in #initialconsultations (a free discovery session in
+// #clientadvocates) by hand. This finds those posts ("… Scheduled for First
+// Last") so the Slack step shows done either way.
 // Reads Slack only; writes our own steps table.
 
 const DAY = 24 * 60 * 60 * 1000
@@ -39,16 +41,33 @@ export async function syncSlackPosts(leads: Lead[]): Promise<string[]> {
   const todo = leads.filter((l) => !done.has(l.id) && l.client_first && l.client_last)
   if (!todo.length) return []
 
+  // Which channel each lead's post belongs in.
+  const { data: appts } = await admin
+    .from("appointments")
+    .select("lead_id, type")
+    .in(
+      "lead_id",
+      todo.map((l) => l.id)
+    )
+    .eq("canceled", false)
+  const channelOf = new Map<string, string>()
+  for (const a of appts ?? []) if (a.lead_id) channelOf.set(a.lead_id, consultChannel(a.type).id)
+  const where = (id: string) => channelOf.get(id) ?? INITIAL_CONSULTS_CHANNEL
+
   // Posts go up after the booking, so nothing older than the oldest lead matters.
   const oldest = Math.min(...todo.map((l) => new Date(l.created_at).getTime())) - DAY
-  const posts = (await channelHistory(INITIAL_CONSULTS_CHANNEL, oldest / 1000)).map((p) => ({ ...p, norm: norm(p.text) }))
+  const history = new Map<string, { ts: string; text: string; norm: string }[]>()
+  for (const ch of Array.from(new Set(todo.map((l) => where(l.id)))))
+    // One channel Slack won't let us read must not stop the other.
+    history.set(ch, (await channelHistory(ch, oldest / 1000).catch(() => [])).map((p) => ({ ...p, norm: norm(p.text) })))
 
   const found: string[] = []
   for (const lead of todo) {
     const after = (new Date(lead.created_at).getTime() - DAY) / 1000
     const needle = norm(`scheduled for ${lead.client_first} ${lead.client_last}`).trim()
     // The oldest match is the announcement; later ones are replies or reposts.
-    const post = posts
+    const channel = where(lead.id)
+    const post = (history.get(channel) ?? [])
       .filter((p) => Number(p.ts) >= after && p.norm.includes(needle))
       .sort((a, b) => Number(a.ts) - Number(b.ts))[0]
     if (!post) continue
@@ -56,7 +75,7 @@ export async function syncSlackPosts(leads: Lead[]): Promise<string[]> {
       lead_id: lead.id,
       step_key: "slack_posted",
       state: "done",
-      detail: { action: "detected", ts: post.ts, link: messageLink(INITIAL_CONSULTS_CHANNEL, post.ts) },
+      detail: { action: "detected", ts: post.ts, link: messageLink(channel, post.ts), channel },
     })
     await clearFailure(admin, lead.id, "slack_post")
     found.push(lead.id)

@@ -24,6 +24,7 @@ import { growState, nameDiffers } from "@/lib/grow-note"
 import { clientSetByStaff } from "@/lib/intake-steps"
 import { ADVOCATE_CLIO_NAMES } from "@/lib/intake"
 import { clearFailure, logStep } from "@/lib/intake-step-log"
+import { consultChannel } from "@/lib/slack-channels"
 import { INITIAL_CONSULTS_CHANNEL, messageText, postToChannel, slackConfigured, slackUserIds } from "@/lib/slack"
 import { syncSlackPosts } from "@/lib/slack-sync"
 import { contactWaitOver, onSafetyHold, safetyHold } from "@/lib/safety-hold"
@@ -458,7 +459,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     }
   }
 
-  // ── #initialconsultations post ──
+  // ── The consult post: #initialconsultations (#clientadvocates for a discovery session) ──
   if (!s.slack) {
     if (!slackConfigured()) waiting.push("Slack post: Slack is not connected")
     else if (!advocate) waiting.push(`Slack post: ${noAdvocate}`)
@@ -467,13 +468,14 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     else {
       const { data: appt } = await admin
         .from("appointments")
-        .select("datetime, end_time, location, paid:raw->>paid, notes:raw->>notes")
+        .select("datetime, end_time, location, type, paid:raw->>paid, notes:raw->>notes")
         .eq("lead_id", lead.id)
         .eq("canceled", false)
         .order("datetime", { ascending: false })
         .limit(1)
         .maybeSingle()
-      const a = appt as { datetime: string | null; end_time: string | null; location: string | null; paid: string | null; notes: string | null } | null
+      const a = appt as { datetime: string | null; end_time: string | null; location: string | null; type: string | null; paid: string | null; notes: string | null } | null
+      const channel = consultChannel(a?.type)
       const { location } = await consultLocation(admin, lead, a?.location ?? null)
       const post = consultPost({
         lead,
@@ -484,17 +486,17 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
         description: lead.description ?? a?.notes ?? null,
       })
       if (!post.text) waiting.push(`Slack post: needs the ${post.missing.join(" and ")}`)
-      else if (dry) done.push("post in #initialconsultations")
+      else if (dry) done.push(`post in ${channel.name}`)
       else {
         try {
           const people = postMentions(lead)
           const ids = await slackUserIds(people.map((p) => p.name))
           let body = slackEscape(post.text)
           for (const p of people) if (ids[p.name]) body = body.split(p.token).join(`<@${ids[p.name]}>`)
-          const posted = await postToChannel(INITIAL_CONSULTS_CHANNEL, body)
-          await step("slack_posted", "done", { action: "sent", ts: posted.ts, link: posted.link })
+          const posted = await postToChannel(channel.id, body)
+          await step("slack_posted", "done", { action: "sent", ts: posted.ts, link: posted.link, channel: channel.id })
           await clearFailure(admin, lead.id, "slack_post")
-          done.push("posted in #initialconsultations")
+          done.push(`posted in ${channel.name}`)
         } catch (e) {
           const msg = why(e, "Slack post failed.")
           await step("slack_post", "failed", {}, msg)
@@ -509,9 +511,11 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
   // @Client" (who booked). Once the automation picks the advocate, it says so
   // under that post and tags them, so Slack never lacks the advocate.
   if (advocateNoteDue(s) && slackConfigured() && !dry) {
-    const ts = (s.steps.find((x) => x.step_key === "slack_posted")?.detail as { ts?: string } | null)?.ts
+    const post = s.steps.find((x) => x.step_key === "slack_posted")?.detail as { ts?: string; channel?: string } | null
+    const ts = post?.ts
+    const postChannel = post?.channel ?? INITIAL_CONSULTS_CHANNEL
     try {
-      const text = ts ? await messageText(INITIAL_CONSULTS_CHANNEL, ts) : null
+      const text = ts ? await messageText(postChannel, ts) : null
       const line = text?.match(/Assigned Advocate:[ \t]*([^\r\n]*)/i)?.[1]?.trim() ?? ""
       if (!ts || !text || !/^@?(client|other)?$/i.test(line)) {
         // The post is gone, or already names someone: nothing to add.
@@ -522,7 +526,7 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
         const who = ids[name] ? `<@${ids[name]}>` : name
         const fromGrow = (s.steps.find((x) => x.step_key === "advocate_assigned")?.detail as { by?: string } | null)?.by === BY_GROW
         const posted = await postToChannel(
-          INITIAL_CONSULTS_CHANNEL,
+          postChannel,
           `Assigned Advocate: ${who} (${fromGrow ? "from the Clio Grow matter" : "picked automatically by the dashboard"})`,
           ts
         )
