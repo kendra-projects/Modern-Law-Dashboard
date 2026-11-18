@@ -400,6 +400,14 @@ export async function sendClioPortalInvite(x: {
   for (const u of users)
     if (NEVER_ON_PORTAL.includes(u.name.trim().toLowerCase())) throw new Error(`${u.name} can never be on a client portal`)
 
+  // The message is sent as the dashboard's Clio login, who is on the
+  // conversation as its sender; Clio refuses that user as a receiver too
+  // ("Cannot send a secure message to yourself"), e.g. when they're the advocate.
+  const me = await clioFetch<{ data: { id: number } }>("/api/v4/users/who_am_i?fields=id")
+    .then((r) => r.data.id)
+    .catch(() => null)
+  const receivers = Array.from(new Set(users.map((u) => u.id))).filter((id) => id !== me)
+
   const fields = encodeURIComponent("id,conversation{id}")
   const res = await clioFetch<{ data: { id: number; conversation?: { id: number } | null } }>(
     `/api/v4/conversation_messages?fields=${fields}`,
@@ -412,7 +420,7 @@ export async function sendClioPortalInvite(x: {
           matter: { id: Number(x.matterId) },
           receivers: [
             { type: "Contact", id: Number(x.contactId) },
-            ...Array.from(new Set(users.map((u) => u.id))).map((id) => ({ type: "User", id })),
+            ...receivers.map((id) => ({ type: "User", id })),
           ],
         },
       }),
