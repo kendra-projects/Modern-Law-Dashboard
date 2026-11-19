@@ -49,10 +49,14 @@ export function isConsultType(type: string | undefined): boolean {
   return /(consultation|strategy session|discovery session)/i.test(type) && !/follow[\s-]?up/i.test(type)
 }
 
-/** "Hillary Ryan • Family Law Attorney" / "Richard Nedlin - Attorney" → the name. */
-function attorneyFromCalendar(cal: string | undefined): string | null {
+/**
+ * "Hillary Ryan • Family Law Attorney" / "Richard Nedlin - Attorney" → the name.
+ * A leading first initial is dropped: Acuity's "M. Dawn Lloyd" is Dawn Lloyd
+ * everywhere (matter title, posts, texts).
+ */
+export function attorneyFromCalendar(cal: string | null | undefined): string | null {
   if (!cal) return null
-  const name = cal.split(/\s[•-]\s/)[0]?.trim()
+  const name = cal.split(/\s[•-]\s/)[0]?.trim().replace(/^[A-Z]\.\s+(?=\S+\s+\S)/, "")
   return name || null
 }
 
