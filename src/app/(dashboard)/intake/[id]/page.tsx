@@ -5,7 +5,7 @@ import { ArrowLeft, CalendarClock, Video, Phone, MapPin, Scale, Briefcase, Mail,
 import { createClient } from "@/lib/supabase/server"
 import { ClioStep, ClioStepSkeleton } from "@/components/intake/clio-card"
 import { CLIENT_ADVOCATES_CHANNEL, channelName, consultChannel } from "@/lib/slack-channels"
-import { GrowStep, LexiStep, ConflictStep, AdvocateStep, PortalStep, TextStep, SlackStep, TasksStep, SignoffStep } from "@/components/intake/lead-steps"
+import { GrowStep, LexiStep, ConflictStep, AdvocateStep, PortalStep, TextStep, SlackStep, TasksStep, SignoffStep, RefreshAcuity } from "@/components/intake/lead-steps"
 import { LeadView, BookingDetails, type LeadFact } from "@/components/intake/lead-view"
 import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspace"
 import type { ActivityRow } from "@/components/intake/lead-activity"
@@ -240,6 +240,7 @@ export default async function IntakeDetailPage({
       summary: `${lead.source === "acuity" ? "Acuity" : lead.source} · ${day(lead.created_at)}`,
       description: `Booked ${when(lead.created_at)}${lead.source === "acuity" ? " in Acuity" : ""}, as the client gave it.`,
       body: (
+        <div className="space-y-4">
         <BookingDetails
           groups={[
             {
@@ -273,6 +274,8 @@ export default async function IntakeDetailPage({
           ]}
           description={lead.description}
         />
+        {lead.source === "acuity" && lead.external_id && <RefreshAcuity leadId={lead.id} />}
+        </div>
       ),
     },
     ...(showGrow

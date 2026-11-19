@@ -14,6 +14,7 @@ import {
   sendPortalInvite,
   createFollowUps,
   addGrowNote,
+  refreshFromAcuity,
 } from "@/app/actions/intake-leads"
 import { ADVOCATES, ADVOCATE_CLIO_NAMES, CLIO_CONFLICT_URL } from "@/lib/intake"
 import type { ConflictHit } from "@/lib/conflict-search"
@@ -603,6 +604,22 @@ export function TextStep({
           </Button>
         )}
       </Row>
+      {note}
+    </div>
+  )
+}
+
+/** Re-reads the Acuity booking, for a change Acuity didn't tell the dashboard about. */
+export function RefreshAcuity({ leadId }: { leadId: string }) {
+  const { pending, run, note } = useAction()
+  return (
+    <div className="space-y-2">
+      <Row>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={pending} onClick={() => run(() => refreshFromAcuity(leadId))}>
+          <RefreshCw className={cn("h-3.5 w-3.5", pending && "animate-spin")} /> {pending ? "Refreshing…" : "Refresh from Acuity"}
+        </Button>
+      </Row>
+      <Hint>Changed the booking in Acuity (where, when, form answers) and it isn&apos;t showing here? This reads it again.</Hint>
       {note}
     </div>
   )

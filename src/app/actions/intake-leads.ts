@@ -21,7 +21,7 @@ import { conflictSearchLine } from "@/lib/intake-steps"
 import { holdEmail, onSafetyHold, SAFETY_HOLD, SAFETY_HOLD_MESSAGE } from "@/lib/safety-hold"
 import { hideAcuityContact, restoreAcuityContact } from "@/lib/acuity-hold-contact"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { fetchAcuityAppointment, isConsultType, upsertAppointment } from "@/lib/acuity"
+import { enrichLeadFromAcuity, fetchAcuityAppointment, isConsultType, upsertAppointment } from "@/lib/acuity"
 import { startAcuityLead } from "@/lib/acuity-lead"
 import { RETURNING, RETURNING_MESSAGE, returningState, type ReturningDetail } from "@/lib/returning-client"
 
@@ -875,4 +875,26 @@ export async function startIntakeFromAppointment(acuityId: string): Promise<Acti
   revalidatePath("/intake/appointments")
   revalidatePath("/intake")
   return { ok: true, message: "Intake started." }
+}
+
+/**
+ * "Refresh from Acuity" on the lead page: re-reads the booking (time, attorney,
+ * how and where, form answers) for a change Acuity didn't send the webhook for,
+ * e.g. a staff-form edit, then lets the automation and the bot carry on.
+ */
+export async function refreshFromAcuity(leadId: string): Promise<ActionResult> {
+  const { supabase, user } = await requireUser()
+  if (!user) return { ok: false, message: "Sign in again." }
+  if (!canSeeIntake(await getRole())) return { ok: false, message: "Not allowed." }
+  const { data: lead } = await supabase.from("intake_leads").select("source, external_id").eq("id", leadId).maybeSingle()
+  if (!lead || lead.source !== "acuity" || !lead.external_id) return { ok: false, message: "This lead didn't come from Acuity." }
+  const appt = await fetchAcuityAppointment(lead.external_id)
+  if (!appt) return { ok: false, message: "Couldn't read the booking from Acuity. Try again in a minute." }
+  const ok = await enrichLeadFromAcuity(leadId, lead.external_id, appt).catch(() => false)
+  if (!ok) return { ok: false, message: "Couldn't update the lead from Acuity." }
+  await upsertAppointment(appt, { leadId }).catch(() => {})
+  await runAutoIntake(leadId).catch(() => null)
+  await wakeBotFor(leadId).catch(() => false)
+  revalidatePath(`/intake/${leadId}`)
+  return { ok: true, message: "Updated from Acuity." }
 }
