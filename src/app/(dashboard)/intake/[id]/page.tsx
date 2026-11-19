@@ -11,7 +11,7 @@ import type { StepState, WorkspaceStep } from "@/components/intake/lead-workspac
 import type { ActivityRow } from "@/components/intake/lead-activity"
 import { ClioSyncPing } from "@/components/intake/clio-sync-ping"
 import { followUpPlan, manageFollowUpsOn } from "@/lib/follow-ups"
-import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
+import { ADVOCATE_CLIO_NAMES, isAdvocate, OFFICE_ADDRESSES } from "@/lib/intake"
 import { CLIO_APP } from "@/lib/clio-intake"
 import { clientSetByStaff, describeStep } from "@/lib/intake-steps"
 import { confirmationText, consultMethod, portalInviteText, portalMembers } from "@/lib/client-messages"
@@ -113,7 +113,7 @@ export default async function IntakeDetailPage({
     datetime: consultAt,
     method,
     location,
-    officeAddress: office?.address ?? null,
+    officeAddress: office?.address ?? (lead.office ? OFFICE_ADDRESSES[lead.office] : null) ?? null,
   })
   // Staff-booked consults carry their description in Acuity's notes; the
   // client's own booking form fills lead.description.

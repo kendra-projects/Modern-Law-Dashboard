@@ -37,6 +37,17 @@ export const ADVOCATE_CLIO_NAMES: Record<string, string> = {
  * (8707 E Vista Bonita Dr). A virtual consult isn't an office; it's
  * method = zoom with office left empty.
  */
+/**
+ * Each office's address, for when the office_addresses table has no row for it
+ * (Scottsdale was missing in production, Nov 2026). The table wins when it has one.
+ */
+export const OFFICE_ADDRESSES: Record<"mesa" | "peoria" | "scottsdale" | "tucson", string> = {
+  mesa: "4540 E Baseline Road, Suite 105, Mesa, AZ 85206",
+  peoria: "7972 W Thunderbird Road, Suite 106, Peoria, AZ 85381",
+  scottsdale: "8707 East Vista Bonita Drive, Suite 155, Scottsdale, AZ 85255",
+  tucson: "7538 N La Cholla Blvd, Tucson, AZ 85741",
+}
+
 export const OFFICES: { value: "mesa" | "peoria" | "scottsdale" | "tucson"; label: string }[] = [
   { value: "mesa", label: "Mesa" },
   { value: "peoria", label: "Peoria" },

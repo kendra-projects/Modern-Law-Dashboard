@@ -5,6 +5,7 @@ import { consultLocation } from "@/lib/attorney-zoom"
 import { growNote, growState, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep, Json } from "@/types/database"
+import { OFFICE_ADDRESSES } from "@/lib/intake"
 
 // Adds the booking note to the client's Clio Grow matter on its own: when the
 // booking comes in, when a lead's page opens, and with the open-leads sync.
@@ -160,7 +161,7 @@ async function noteContext(admin: Admin, leads: GrowLead[]) {
     const appt = latest(lead.id)
     return {
       appt: appt ? { end_time: appt.end_time, location: where.get(lead.id) ?? appt.location, paid: appt.paid, notes: appt.notes } : null,
-      office: lead.office ? address.get(lead.office) ?? null : null,
+      office: lead.office ? address.get(lead.office) ?? OFFICE_ADDRESSES[lead.office] ?? null : null,
     }
   }
 }

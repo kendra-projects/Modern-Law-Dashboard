@@ -14,7 +14,7 @@ import { growState, nameDiffers } from "@/lib/grow-note"
 import { clientSetByStaff } from "@/lib/intake-steps"
 import { growContactId, growMattersSinceBooking, type GrowLead } from "@/lib/grow-sync"
 import { autoSignoff, runAutoIntake } from "@/lib/auto-intake"
-import { ADVOCATE_CLIO_NAMES, isAdvocate } from "@/lib/intake"
+import { ADVOCATE_CLIO_NAMES, isAdvocate, OFFICE_ADDRESSES } from "@/lib/intake"
 import { logStep } from "@/lib/intake-step-log"
 import { lexiConversationUrl } from "@/lib/lexi-followups"
 import { emailLexi } from "@/lib/lexi-email"
@@ -284,7 +284,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
         datetime: lead.consult_datetime,
         method: consultMethod(lead.method, location),
         location,
-        officeAddress: lead.office ? address.get(lead.office) ?? null : null,
+        officeAddress: lead.office ? address.get(lead.office) ?? OFFICE_ADDRESSES[lead.office] ?? null : null,
       })
       if (sms.text && !sms.missing.length) {
         out.push({

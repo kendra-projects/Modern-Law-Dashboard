@@ -5,6 +5,7 @@ import { fetchAcuityAppointment } from "@/lib/acuity"
 import { ACUITY_FORMS, ACUITY_MATTER_TYPES, ACUITY_REFERRAL_SOURCES } from "@/lib/acuity-map"
 import { consultLocation } from "@/lib/attorney-zoom"
 import type { Database, IntakeLead } from "@/types/database"
+import { OFFICE_ADDRESSES } from "@/lib/intake"
 
 // Kendra's walkthrough step for a self-scheduled consult: once the conflict
 // check is clear, staff fill in the staff intake form on the Acuity
@@ -89,7 +90,8 @@ export function relabelWhere(current: string, method: Lead["method"]): string | 
 async function whereValue(db: Db, lead: Lead, location: string | null): Promise<string | null> {
   if (lead.method === "in_person" && lead.office) {
     const { data } = await db.from("office_addresses").select("address").eq("office", lead.office).maybeSingle()
-    return data?.address ? labelWhere("in_person", data.address) : null
+    const address = data?.address ?? OFFICE_ADDRESSES[lead.office]
+    return address ? labelWhere("in_person", address) : null
   }
   if (lead.method === "phone") return lead.phone ? labelWhere("phone", lead.phone) : null
   const { location: loc } = await consultLocation(db, lead, location)
