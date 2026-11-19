@@ -61,16 +61,21 @@ export function attorneyFromCalendar(cal: string | null | undefined): string | n
 }
 
 /** Zoom link → zoom; an office address → in person at that office; else phone. */
-function methodAndOffice(loc: string | undefined) {
+function methodAndOffice(loc: string | null | undefined): { method?: string; office?: string } {
   const s = (loc ?? "").toLowerCase()
   if (!s.trim()) return {}
   if (s.includes("zoom")) return { method: "zoom" }
   if (s.includes("mesa") || s.includes("baseline")) return { method: "in_person", office: "mesa" }
   if (s.includes("peoria") || s.includes("thunderbird")) return { method: "in_person", office: "peoria" }
   if (s.includes("tucson") || s.includes("la cholla")) return { method: "in_person", office: "tucson" }
+  if (s.includes("scottsdale") || s.includes("vista bonita")) return { method: "in_person", office: "scottsdale" }
+  if (/^\s*in person\b/.test(s)) return { method: "in_person" }
   if (s.includes("phone") || /\d{3}\D?\d{3}\D?\d{4}/.test(s)) return { method: "phone" }
   return {}
 }
+
+/** The staff form's "Zoom Link, Office Address, or Phone Number" (lib/acuity-form.ts). */
+const WHERE_FIELD = 12016702
 
 function acuityCreds() {
   const userId = process.env.ACUITY_USER_ID
@@ -113,7 +118,11 @@ export function mapAppointmentToLead(a: AcuityAppointment) {
     consulting_attorney: attorneyFromCalendar(a.calendar),
     consult_type: /strategy session/i.test(a.type ?? "") ? "LSS" : "IC",
     self_scheduled: !a.scheduledBy,
-    ...methodAndOffice(a.location),
+    // The booking's location, else the staff form's "IN PERSON: …" / "ZOOM: …"
+    // / "PHONE: …" answer (a booking with no location set).
+    ...(Object.keys(methodAndOffice(a.location)).length
+      ? methodAndOffice(a.location)
+      : methodAndOffice(a.forms?.flatMap((f) => f.values ?? []).find((v) => v.fieldID === WHERE_FIELD)?.value)),
   }
   // On safety hold the appointment carries the firm's address and no phone
   // (lib/acuity-hold-contact.ts): keep the client's own on the lead.

@@ -33,13 +33,14 @@ export const ADVOCATE_CLIO_NAMES: Record<string, string> = {
 }
 
 /**
- * Physical offices. Confirmed against the live Acuity account: only Mesa, Peoria
- * and Tucson exist — there is NO Scottsdale. A virtual consult isn't an office;
- * it's method = zoom with office left empty.
+ * Physical offices. Scottsdale is used for in-person consults since Nov 2026
+ * (8707 E Vista Bonita Dr). A virtual consult isn't an office; it's
+ * method = zoom with office left empty.
  */
-export const OFFICES: { value: "mesa" | "peoria" | "tucson"; label: string }[] = [
+export const OFFICES: { value: "mesa" | "peoria" | "scottsdale" | "tucson"; label: string }[] = [
   { value: "mesa", label: "Mesa" },
   { value: "peoria", label: "Peoria" },
+  { value: "scottsdale", label: "Scottsdale" },
   { value: "tucson", label: "Tucson" },
 ]
 
