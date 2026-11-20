@@ -53,10 +53,15 @@ export async function attorneyZoomLink(db: Db, attorney: string | null): Promise
  */
 export async function consultLocation(
   db: Db,
-  lead: Pick<IntakeLead, "method" | "consulting_attorney">,
+  lead: Pick<IntakeLead, "method" | "consulting_attorney"> & Partial<Pick<IntakeLead, "phone">>,
   location: string | null
 ): Promise<{ location: string | null; zoomFromAttorney: boolean }> {
   const blank = !location?.trim()
+  // A phone consult is "PHONE: <the client's number>" (the firm's format, as the
+  // staff form gets it): a booking that says phone but has no number (Judy
+  // Gordon, 20 Nov 2026) uses the client's own.
+  if (lead.method === "phone" && !/\d{3}\D?\d{3}\D?\d{4}/.test(location ?? "") && lead.phone?.trim())
+    return { location: `PHONE: ${lead.phone.trim()}`, zoomFromAttorney: false }
   const zoom = lead.method === "zoom" || (!lead.method && blank)
   if (!zoom || zoomIn(location)) return { location, zoomFromAttorney: false }
   const link = await attorneyZoomLink(db, lead.consulting_attorney)
