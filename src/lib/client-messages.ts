@@ -19,7 +19,9 @@ export function consultMethod(method: IntakeLead["method"], location: string | n
 }
 
 const zoomLink = (loc: string | null) => loc?.match(/https?:\/\/\S*zoom\.us\/\S+/i)?.[0] ?? null
-const phoneNumber = (loc: string | null) => loc?.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)?.[0] ?? null
+// A leading country code ("+14802540678") belongs to the number; without it the
+// match took the first ten digits and dropped the last one (Gordon, 20 Nov 2026).
+const phoneNumber = (loc: string | null) => loc?.match(/(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/)?.[0] ?? null
 
 /**
  * The confirmation text, in the firm's wording. Returns what is still missing
