@@ -144,6 +144,8 @@ export type BotTask =
       description: string
       checklist_template_id: number
       checklist_title: string
+      /** Every name the consult checklist goes by: one already on the matter means none is added, and items in any are ticked. */
+      checklist_titles: string[]
       /** Due times for the checklist's follow-up items, by item name. */
       follow_ups: { name: string; due: string }[]
       /** Checklist items (part of their name) to tick, because that work is done. */
@@ -197,6 +199,9 @@ function sigSettled(steps: Steps, kind: "grow" | "portal", sig: string, dry: boo
 // The firm's Grow setup (checked 26 Oct 2026, claude-history/notes/bot-recon-2026-10-26.md).
 // The firm renamed its Grow statuses by 3 Nov 2026 (same id 1123106): names checked 6 Nov 2026.
 const GROW_CHECKLIST = { id: 231446, title: "Standard Consult Scheduled Checklist" }
+// Staff also apply "Appointment Scheduled Checklist" (seen 20 Nov 2026 on Gordon
+// and Dees): the same consult steps. Either on the matter counts as the checklist.
+const GROW_CHECKLIST_TITLES = [GROW_CHECKLIST.title, "Appointment Scheduled Checklist"]
 const GROW_STATUS = "Consult Scheduled"
 const GROW_EARLY_STATUSES = ["New Lead", "Book Consult"]
 const BILLING = "Billing Department"
@@ -447,6 +452,7 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
     description: matterDescription(lead),
     checklist_template_id: GROW_CHECKLIST.id,
     checklist_title: GROW_CHECKLIST.title,
+    checklist_titles: GROW_CHECKLIST_TITLES,
     follow_ups: lead.consult_datetime ? followUpPlan(lead.consult_datetime).map((f) => ({ name: f.name, due: growDue(f.due) })) : [],
     tick,
     convert: conflictClean && !lead.clio_matter_id,
