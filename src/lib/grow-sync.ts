@@ -2,7 +2,7 @@ import "server-only"
 
 import { GROW_NOTES_FROM, growFetch, growNotesApply, growStatus } from "@/lib/grow"
 import { consultLocation } from "@/lib/attorney-zoom"
-import { growNote, growState, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
+import { growNote, growState, nameDiffers, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep, Json } from "@/types/database"
 import { OFFICE_ADDRESSES } from "@/lib/intake"
@@ -237,6 +237,23 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
       ) {
         await writeNote(admin, lead, "rescheduled", st.noted.matterId, context, {})
         changed.add(lead.id)
+      }
+      // Grow's client name is saved when the note goes on. Staff may rename the
+      // client in Grow/Clio afterwards (Mahan, 20 Nov 2026: "Charles" → Dorine),
+      // so while it still differs from the booking, read it again.
+      // A failed read just waits for the next sync; it isn't a note failure.
+      if (st.noted && lead.status !== "canceled" && lead.status !== "done" && nameDiffers(lead.client_first, lead.client_last, st.noted.clientName)) {
+        const matter = await growFetch<{ data: GrowMatter }>(`/matters/${st.noted.matterId}`).then((r) => r.data).catch(() => null)
+        if (!matter) continue
+        const now = matter.client?.full_name ?? null
+        if (now && now !== st.noted.clientName) {
+          const { data: row } = await admin.from("intake_steps").select("id, detail").eq("lead_id", lead.id).eq("step_key", "grow_note").maybeSingle()
+          if (row) {
+            const detail = { ...((row.detail ?? {}) as Record<string, unknown>), client_name: now, matter_name: candidate(matter).name }
+            await admin.from("intake_steps").update({ detail: detail as unknown as Json }).eq("id", row.id)
+            changed.add(lead.id)
+          }
+        }
       }
     } catch (e) {
       await setStep(admin, lead.id, "grow_note_failed", "failed", {}, e instanceof Error ? e.message : "Clio Grow didn't take the note.")
