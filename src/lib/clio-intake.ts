@@ -102,7 +102,7 @@ export async function matterWithClient(ref: string) {
  * (Steven Hitt, 16 Nov 2026). At most two, to stay inside Clio's rate limit.
  */
 export async function sameClientContacts(
-  lead: Pick<IntakeLead, "email" | "phone" | "client_first" | "client_last">,
+  lead: Pick<IntakeLead, "email" | "phone" | "client_first" | "client_last" | "created_at">,
   exceptId: string | number
 ): Promise<ClioContact[]> {
   const search = async (q: string) =>
@@ -117,7 +117,15 @@ export async function sameClientContacts(
   const phone = digits(lead.phone)
   if (phone.length === 10)
     for (const c of await search(phone)) if (digits(c.primary_phone_number) === phone && keep(c)) found.set(c.id, c)
-  return Array.from(found.values()).slice(0, 2)
+  // Staff sometimes open the matter straight in Clio Manage under a new contact
+  // with only the name (Landauer, 19 Nov 2026): the same name, made since the
+  // booking. Older same-name contacts are other people and stay out.
+  const name = [lead.client_first, lead.client_last].filter(Boolean).join(" ").trim()
+  const since = new Date(lead.created_at).getTime() - 24 * 60 * 60 * 1000
+  if (name)
+    for (const c of await search(name))
+      if (keep(c) && c.created_at && new Date(c.created_at).getTime() >= since) found.set(c.id, c)
+  return Array.from(found.values()).slice(0, 3)
 }
 
 export async function contactMatters(contactId: number) {
