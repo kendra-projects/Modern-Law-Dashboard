@@ -414,7 +414,8 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
     done("lexi_followups") && "Stop Lexi follow ups",
     lead.clio_matter_id && "Convert to Manage",
     done("clio_matter_filled") && "Verify PC and OP as Contacts",
-    done("clio_client_portal") && "Invite Potential Client to their Portal",
+    // The bot's own invite, or one sent from the lead page or found in Clio.
+    (done("clio_client_portal") || done("clio_portal_sent")) && "Invite Potential Client to their Portal",
     done("calendar_guest") && "Invite PC to IC",
     done("clio_text_sent") && "Text PC via Clio Texting",
     done("slack_posted") && "Send slack message to Initial Consultations",
