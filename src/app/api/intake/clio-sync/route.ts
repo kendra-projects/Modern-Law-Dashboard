@@ -10,6 +10,7 @@ import { markLexiBooked } from "@/lib/lexi-followups"
 import { onSafetyHold } from "@/lib/safety-hold"
 import { checkReturningClient, RETURNING } from "@/lib/returning-client"
 import { ACUITY_CONTACT_HIDDEN, hideAcuityContact } from "@/lib/acuity-hold-contact"
+import { wakeBotFor, wakeBotIfWork } from "@/lib/bot"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -55,10 +56,13 @@ async function run(request: NextRequest) {
         runConflictSearchForOpenLeads().catch(() => ({ checked: 0, ran: 0, cleared: 0 })),
         markLexiBooked().catch(() => 0),
       ])
+      const changed = clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran + conflict.cleared + lexi
+      // A matter linked or a check cleared can make a lead ready for the bot.
+      if (clio.changed || auto.ran || conflict.cleared) await wakeBotIfWork().catch(() => false)
       return NextResponse.json({
         ok: true,
         checked: clio.checked,
-        changed: clio.changed + slack.changed + grow.changed + auto.ran + conflict.ran + conflict.cleared + lexi,
+        changed,
         slack,
         grow,
         auto,
@@ -108,6 +112,9 @@ async function run(request: NextRequest) {
       markLexiBooked(lead.id).catch(() => 0),
     ])
     const autoChanged = Boolean(auto && auto.mode === "on" && (auto.done.length || auto.failed.length))
+    // The sync may just have linked the matter (staff made it in Clio): the
+    // portal and text can go now, not at the bot's next hourly run.
+    if (clio.length || autoChanged || conflict?.cleared) await wakeBotFor(lead.id).catch(() => false)
     return NextResponse.json({
       ok: true,
       changes: [

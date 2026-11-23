@@ -638,6 +638,26 @@ async function recordJobResult(
 }
 
 /**
+ * Wake the bot once when any open lead has something for it: after a sync of
+ * all open leads linked matters or cleared checks, so the portal and text go
+ * out now instead of at the next hourly run (Mills, 23 Nov 2026).
+ */
+export async function wakeBotIfWork(): Promise<boolean> {
+  const token = process.env.GITHUB_BOT_TOKEN?.trim()
+  const admin = createAdminClient()
+  if (!token || !admin || !botKinds().some((k) => botModeFor(k) !== "off")) return false
+  const tasks = await tasksFor(admin, await openLeads(admin))
+  if (!tasks.length) return false
+  const res = await fetch(`https://api.github.com/repos/${BOT_REPO()}/dispatches`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+    body: JSON.stringify({ event_type: "intake", client_payload: {} }),
+    cache: "no-store",
+  }).catch(() => null)
+  return Boolean(res?.ok)
+}
+
+/**
  * Wake the bot when this lead has something for it (a new booking to pause
  * Lexi for, a lead now ready for its text). Fire and forget: the hourly run
  * catches whatever a missed wake-up leaves.
