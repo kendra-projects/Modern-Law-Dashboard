@@ -86,6 +86,8 @@ const CLOSED: IntakeLead["status"][] = ["canceled", "stopped", "failed", "done"]
 const RETRY_AFTER = 60 * 60 * 1000
 // Lexi keeps texting after the consult too, so pausing still helps for a while.
 const LEXI_WINDOW = 3 * 24 * 60 * 60 * 1000
+/** How long after the consult the bot still converts a Grow matter whose check cleared late. */
+const GROW_LATE_WINDOW = 24 * 60 * 60 * 1000
 
 export type BotTask =
   | {
@@ -314,8 +316,19 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     const done = (key: string) => rows.some((s) => s.step_key === key && s.state === "done")
     const ahead = consult != null && consult > Date.now()
 
-    // The Grow matter, worked the way staff do (see the note at the top).
-    if (inRange(lead, "grow") && ahead && lead.conflict_status !== "conflict") {
+    // The Grow matter, worked the way staff do (see the note at the top). A
+    // same-day booking can have its check cleared after the consult starts
+    // (Wright, 24 Nov 2026: booked 12:30 for 2:00, cleared 2:04), so for a day
+    // after the consult the bot still converts a Grow matter it already knows
+    // and isn't on a Clio matter yet; it never makes one then.
+    const lateConvert =
+      consult != null &&
+      !ahead &&
+      consult > Date.now() - GROW_LATE_WINDOW &&
+      !lead.clio_matter_id &&
+      lead.conflict_status === "clear" &&
+      Boolean(growState(rows).noted?.matterId)
+    if (inRange(lead, "grow") && (ahead || lateConvert) && lead.conflict_status !== "conflict") {
       const task = await growTask(admin, lead, rows).catch(() => null)
       if (task && !sigSettled(rows, "grow", task.sig, task.dry)) out.push(task)
     }
