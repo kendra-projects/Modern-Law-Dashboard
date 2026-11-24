@@ -1,5 +1,6 @@
 import "server-only"
 
+import { SAME_DAY, sameDayFirst } from "@/lib/same-day"
 import { consultLocation } from "@/lib/attorney-zoom"
 import { pickAdvocate } from "@/lib/advocate-auto"
 import { botKinds, botModeFor, type BotKind, type BotMode } from "@/lib/bot-mode"
@@ -235,6 +236,7 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
   ])
   const address = new Map((offices ?? []).map((o) => [o.office as string, o.address as string]))
   const out: BotTask[] = []
+  const textSent = (id: string) => ((steps ?? []) as Steps).some((s) => s.lead_id === id && s.step_key === "clio_text_sent" && s.state === "done")
   for (const lead of leads) {
     const rows = ((steps ?? []) as Steps).filter((s) => s.lead_id === lead.id)
     const consult = lead.consult_datetime ? new Date(lead.consult_datetime).getTime() : null
@@ -258,6 +260,9 @@ async function tasksFor(admin: Admin, leads: IntakeLead[]): Promise<BotTask[]> {
     // A safety hold (lib/safety-hold.ts): pausing Lexi above stops contact, so it
     // still runs; the text, the Grow card and the portal don't.
     if (safetyHold(rows)) continue
+    // A later booking the same day for the same client: the first booking does
+    // the text, the portal and the Grow matter (lib/same-day.ts).
+    if (rows.some((s) => s.step_key === SAME_DAY && s.state === "done") || sameDayFirst(lead, leads, textSent)) continue
     // A returning client waiting on same case or new case: no text, Grow work or portal on a matter that may be the wrong one.
     if (returningState(rows) === "waiting") continue
 
@@ -364,6 +369,10 @@ async function growTask(admin: Admin, lead: IntakeLead, rows: Steps): Promise<Ex
   const matterId = grow.noted?.matterId ?? null
   // Several Grow matters could be the client's: staff pick one on the lead page first.
   if (!matterId && rows.some((s) => s.step_key === "grow_match" && s.state === "awaiting_human")) return null
+  // The booking is already on a Clio matter (a returning client's, or one staff
+  // made): that matter is the client's Grow matter too, so never make another
+  // (Khalaj, 23 Nov 2026: one made per booking).
+  if (!matterId && lead.clio_matter_id) return null
   if (!matterId && Date.now() - new Date(lead.created_at).getTime() < CREATE_AFTER) return null
 
   // A returning client (lib/returning-client.ts): while staff decide whether

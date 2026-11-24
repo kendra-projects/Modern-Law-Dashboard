@@ -137,9 +137,11 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     case "clio_create":
       return "Clio create failed"
     case "clio_text_sent":
-      return "Confirmation text sent"
+      return d.action === "covered" ? "Confirmation text: covered by the client's earlier booking that day" : "Confirmation text sent"
     case "clio_portal_sent":
-      return d.action === "sent"
+      return d.action === "covered"
+        ? "Portal invite: covered by the client's earlier booking that day"
+        : d.action === "sent"
         ? "Portal invite sent from the dashboard"
         : d.action === "detected"
           ? "Found in Clio: client portal opened"
@@ -154,12 +156,16 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
           : "Follow-up tasks created in Clio"
     case "slack_posted": {
       const where = channelName(d.channel)
-      return d.action === "sent"
+      return d.action === "covered"
+        ? `Slack post: covered by the client's earlier booking that day`
+        : d.action === "sent"
         ? `Posted in ${where} from the dashboard`
         : d.action === "detected"
           ? `Found in Slack: posted in ${where}`
           : `Posted in ${where}`
     }
+    case "same_day":
+      return "Second booking the same day: the text, portal invite, Slack post and Grow matter come from the client's earlier booking"
     case "slack_post":
       return "Slack post failed"
     case "slack_alert":

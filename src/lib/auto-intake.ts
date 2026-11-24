@@ -1,5 +1,6 @@
 import "server-only"
 
+import { coverSameDay } from "@/lib/same-day"
 import { acuityFormOn, fillAcuityForm } from "@/lib/acuity-form"
 import { addCalendarGuest, calendarGuestOn } from "@/lib/calendar-guest"
 import { autoAssignAdvocate, syncAdvocateFromGrow } from "@/lib/advocate-auto"
@@ -254,6 +255,9 @@ export async function runAutoIntake(leadId: string): Promise<AutoIntakeResult | 
   if (mode === "off" || !admin) return null
 
   let first = await load(admin, leadId)
+  // A second booking the same day for the same client: its text, portal and
+  // Slack post are the first booking's (lib/same-day.ts).
+  if (first && (await coverSameDay(admin, first.lead).catch(() => null))) first = (await load(admin, leadId)) ?? first
   if (!first || !inScope(first.lead)) return null
   // A safety hold stops every step, the advocate pick included (lib/safety-hold.ts).
   if (safetyHold(first.steps)) return null
