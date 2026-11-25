@@ -22,8 +22,13 @@ export type RecoveryRow = {
   href: string
 }
 
+// A fixed locale and the firm's time zone (Arizona, no daylight saving), so the
+// server (UTC on Vercel) and every browser write the same text. With the
+// browser's own locale and zone the two differed and React threw hydration
+// errors #425/#422 on this page.
 function fmt(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/Phoenix",
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -126,7 +131,9 @@ export function IntakeRecoveryClient({ rows }: { rows: RecoveryRow[] }) {
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Lead · what needs doing</th>
                 <th className="px-4 py-3 font-medium">State</th>
-                <th className="hidden px-4 py-3 font-medium sm:table-cell">Updated</th>
+                <th className="hidden px-4 py-3 font-medium sm:table-cell" title="Arizona time">
+                  Updated (AZ)
+                </th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
