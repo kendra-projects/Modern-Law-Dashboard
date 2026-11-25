@@ -210,3 +210,45 @@ export function ListRowSkeleton({ icon = true, pill = true }: { icon?: boolean; 
     </div>
   )
 }
+
+/**
+ * People in one card (Members, Login History): name over email, the team
+ * badge, a time in a fixed-width box, and on Members the Remove button (or
+ * "Main login") in its 92px slot. Same row classes as the pages, so the rows
+ * wrap the same way on a phone.
+ */
+export function PeopleListSkeleton({
+  rows = 6,
+  timeBox = "w-44 justify-end",
+  timeBar = "w-32",
+  action = false,
+}: {
+  rows?: number
+  timeBox?: string
+  timeBar?: string
+  action?: boolean
+}) {
+  return (
+    <Card>
+      <CardContent className="divide-y divide-border p-0">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-3 p-4">
+            <div className="min-w-0 flex-1">
+              <Skeleton className={cn("h-4 max-w-full", i % 2 ? "w-40" : "w-32")} />
+              <Skeleton className={cn("mt-2 h-3 max-w-full", i % 3 ? "w-52" : "w-44")} />
+            </div>
+            <Skeleton className="h-[22px] w-14 shrink-0 rounded-full" />
+            <div className={cn("flex", timeBox)}>
+              <Skeleton className={cn("h-3", timeBar)} />
+            </div>
+            {action && (
+              <div className="flex w-[92px] justify-center">
+                <Skeleton className="h-4 w-[72px]" />
+              </div>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
