@@ -660,6 +660,22 @@ async function recordJobResult(
 }
 
 /**
+ * Whether GitHub took the wake-up. A refused one is logged with GitHub's
+ * answer (Vercel's logs), so a bad token doesn't fail silently for a day
+ * (24-25 Nov 2026: no wake-ups reached the bot).
+ */
+async function wakeResult(res: Response | Error, what: string): Promise<boolean> {
+  if (res instanceof Error) {
+    console.error(`[bot wake] ${what}: request failed: ${res.message}`)
+    return false
+  }
+  if (res.ok) return true
+  const body = await res.text().catch(() => "")
+  console.error(`[bot wake] ${what}: GitHub answered ${res.status}: ${body.slice(0, 300)}`)
+  return false
+}
+
+/**
  * Wake the bot once when any open lead has something for it: after a sync of
  * all open leads linked matters or cleared checks, so the portal and text go
  * out now instead of at the next hourly run (Mills, 23 Nov 2026).
@@ -675,8 +691,8 @@ export async function wakeBotIfWork(): Promise<boolean> {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
     body: JSON.stringify({ event_type: "intake", client_payload: {} }),
     cache: "no-store",
-  }).catch(() => null)
-  return Boolean(res?.ok)
+  }).catch((e) => e as Error)
+  return wakeResult(res, "all open leads")
 }
 
 /**
@@ -695,6 +711,6 @@ export async function wakeBotFor(leadId: string): Promise<boolean> {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
     body: JSON.stringify({ event_type: "intake", client_payload: { lead: leadId } }),
     cache: "no-store",
-  }).catch(() => null)
-  return Boolean(res?.ok)
+  }).catch((e) => e as Error)
+  return wakeResult(res, `lead ${leadId}`)
 }
