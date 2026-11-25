@@ -103,6 +103,20 @@ const RETRY_AFTER = 60 * 60 * 1000
 // Clio's rate limit (50 a minute) clears within a minute: try again sooner.
 const RETRY_BUSY = 3 * 60 * 1000
 const busy = (error: string | null) => /failed \(429\)|rate limit/i.test(error ?? "")
+// A matter fill that failed on Clio's rate limit keeps the lead from being
+// approved for up to FILL_HOLD, so the open-leads sync tries the fill again a
+// few minutes later. Without it the approval could come first, and an approved
+// lead is out of the automation's reach (23 Nov 2026: Clio busy at 10:04,
+// approved at 10:13, the matter never filled).
+const FILL_HOLD = 60 * 60 * 1000
+const fillRetryPending = (s: State) =>
+  s.steps.some(
+    (x) =>
+      x.step_key === "clio_matter_fill" &&
+      x.state === "failed" &&
+      busy(x.error) &&
+      Date.now() - new Date(x.updated_at).getTime() < FILL_HOLD
+  )
 
 async function load(admin: Admin, leadId: string): Promise<State | null> {
   const [{ data: lead }, { data: steps }] = await Promise.all([
@@ -193,6 +207,38 @@ function calendarGuestDue(s: State) {
     !s.steps.some((x) => x.step_key === "calendar_guest" && x.state === "done") &&
     !backingOff(s, "calendar_guest_failed")
   )
+}
+
+/**
+ * Add the client to the consult's calendar event and record it: calendar_guest
+ * when it worked, calendar_guest_failed when it didn't. A run Make didn't
+ * confirm (its scenario off or queued) is marked retry, so it is tried again
+ * every hour until the consult, after the approval too (retryCalendarGuests).
+ */
+async function calendarGuestStep(admin: Admin, lead: IntakeLead): Promise<"added" | "already" | { error: string }> {
+  const log = (step_key: string, state: IntakeStep["state"], detail: Record<string, unknown>, error?: string) =>
+    logStep(admin, { lead_id: lead.id, step_key, state, detail: { ...detail, by: BY }, error: error ?? null })
+  let error: string
+  let retry = false
+  try {
+    const r = await addCalendarGuest(lead)
+    if (r.result === "added" || r.result === "already") {
+      await log("calendar_guest", "done", { result: r.result })
+      await clearFailure(admin, lead.id, "calendar_guest_failed")
+      return r.result
+    }
+    retry = r.result === "unconfirmed"
+    error =
+      r.result === "none"
+        ? "The consult's event wasn't found on the attorney's Google calendar."
+        : r.result === "others"
+          ? "The consult's event has other guests, so add the client by hand."
+          : `${r.note} Make's scenario may be off or queued, or it found no event; the dashboard tries again every hour until the consult.`
+  } catch (e) {
+    error = e instanceof Error ? e.message : "The client couldn't be added to the calendar event."
+  }
+  await log("calendar_guest_failed", "failed", retry ? { retry: true } : {}, error)
+  return { error }
 }
 
 /** The automation (or Grow) set the advocate after staff had posted the consult in Slack by hand. */
@@ -325,18 +371,9 @@ async function work(admin: Admin, s: State, mode: "log" | "on"): Promise<AutoInt
     if (dry) done.push("add the client to the calendar event")
     else if (await onSafetyHold(admin, lead.id)) waiting.push("Calendar invite: safety hold is on")
     else {
-      try {
-        const r = await addCalendarGuest(lead)
-        if (r === "none") throw new Error("The consult's event wasn't found on the attorney's Google calendar.")
-        if (r === "others") throw new Error("The consult's event has other guests, so add the client by hand.")
-        await step("calendar_guest", "done", { result: r })
-        await clearFailure(admin, lead.id, "calendar_guest_failed")
-        if (r === "added") done.push("added the client to the calendar event")
-      } catch (e) {
-        const msg = why(e, "The client couldn't be added to the calendar event.")
-        await step("calendar_guest_failed", "failed", {}, msg)
-        failed.push(`Calendar guest: ${msg}`)
-      }
+      const r = await calendarGuestStep(admin, lead)
+      if (r === "added") done.push("added the client to the calendar event")
+      else if (r !== "already") failed.push(`Calendar guest: ${r.error}`)
     }
   }
 
@@ -598,7 +635,8 @@ export async function autoSignoff(leadId: string): Promise<boolean> {
     s.slack &&
     s.tasks &&
     s.text &&
-    s.lexi
+    s.lexi &&
+    !fillRetryPending(s)
   if (!ready) return false
   const { error } = await admin.from("intake_leads").update({ status: "done" }).eq("id", leadId)
   if (error) return false
@@ -609,7 +647,7 @@ export async function autoSignoff(leadId: string): Promise<boolean> {
 /** For the open-leads sync: retry leads the automation could still move on. */
 export async function runAutoIntakeForOpenLeads(limit = 2) {
   const admin = createAdminClient()
-  if (autoIntakeMode() !== "on" || !admin) return { checked: 0, ran: 0 }
+  if (autoIntakeMode() !== "on" || !admin) return { checked: 0, ran: 0, calendar: 0 }
   const { data } = await admin
     .from("intake_leads")
     .select("id")
@@ -628,7 +666,49 @@ export async function runAutoIntakeForOpenLeads(limit = 2) {
     const r = await runAutoIntake(id).catch(() => null)
     if (r && (r.done.length || r.failed.length)) ran++
   }
-  return { checked, ran }
+  const calendar = await retryCalendarGuests(admin).catch(() => 0)
+  return { checked, ran, calendar }
+}
+
+/**
+ * Calendar invites Make didn't confirm, tried again every hour until the
+ * consult once the intake is approved too: approval doesn't wait for the
+ * invite, and runAutoIntake stops at approval. Only failures marked retry by
+ * calendarGuestStep, so rows written before it existed aren't picked up.
+ * Returns how many it tried.
+ */
+async function retryCalendarGuests(admin: Admin, limit = 3) {
+  const { data: rows } = await admin
+    .from("intake_steps")
+    .select("lead_id, detail")
+    .eq("step_key", "calendar_guest_failed")
+    .eq("state", "failed")
+    .eq("detail->>retry", "true")
+    .lt("updated_at", new Date(Date.now() - RETRY_AFTER).toISOString())
+    .limit(50)
+  const ids = (rows ?? []).filter((r) => (r.detail as { retry?: boolean } | null)?.retry === true).map((r) => r.lead_id)
+  if (!ids.length) return 0
+  const { data: leads } = await admin
+    .from("intake_leads")
+    .select("id")
+    .in("id", ids)
+    .eq("source", "acuity")
+    .eq("status", "done")
+    .gt("consult_datetime", new Date().toISOString())
+  let tried = 0
+  for (const { id } of leads ?? []) {
+    if (tried >= limit) break
+    const s = await load(admin, id)
+    if (!s || !calendarGuestDue(s) || safetyHold(s.steps) || (await onSafetyHold(admin, id))) continue
+    if (!(await takeLock(admin, id))) continue
+    try {
+      await calendarGuestStep(admin, s.lead)
+      tried++
+    } finally {
+      await admin.from("intake_steps").delete().eq("lead_id", id).eq("step_key", LOCK)
+    }
+  }
+  return tried
 }
 
 /** A sentence for the lead page's toast after a gate opened the way. */

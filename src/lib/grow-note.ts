@@ -177,7 +177,9 @@ export function growNote(
 // grow_note_failed      the latest failed attempt
 // grow_match            more than one matter fits (or only a hired one), for staff to pick
 
-// Grow ids are ULIDs like 01M4CAXGV5PTNK0V23124HZE32 (the id in grow.clio.com/matters/...).
+// Grow's API ids are matter numbers like 72026832. The id in a grow.clio.com/matters/...
+// address copied from the browser is a ULID (01M4CAXGV5PTNK0V23124HZE32), which the API
+// answers with 404; lib/grow-ids.ts matches it to the matter first.
 export type GrowCandidate = { id: string | number; name: string; detail: string; created_at: string }
 
 type StepRow = Pick<IntakeStep, "step_key" | "state" | "detail" | "error" | "created_at" | "updated_at">

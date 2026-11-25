@@ -57,6 +57,9 @@ export function describeStep(s: Pick<IntakeStep, "step_key" | "state" | "detail"
     if (h.restore_failed) return "Couldn't put the client's email and phone back in Acuity"
     return `Acuity reminders redirected to ${h.sent_to ?? "the firm"} (client's email and phone taken off the appointment)`
   }
+  // A reschedule or cancellation note the Grow sync skipped: the matter is gone from Grow (lib/grow-sync.ts).
+  if ((s.step_key === "grow_note_rescheduled" || s.step_key === "grow_note_canceled") && s.state === "skipped")
+    return `${s.step_key === "grow_note_canceled" ? "Cancellation" : "Reschedule"} note not added: the Clio Grow matter no longer exists`
   // A failure staff dismissed from Intake Recovery still reads as the failure.
   if (s.state === "skipped") return `${describeStep({ ...s, state: "failed" })} (dismissed)`
   const d = (s.detail ?? {}) as StepDetail

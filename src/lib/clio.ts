@@ -1,5 +1,6 @@
 import "server-only"
 
+import { clioHeldBackMessage, clioRetryAfterMs } from "@/lib/clio-busy"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 // Clio Manage (US) OAuth + API client.
@@ -118,23 +119,50 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
+// Clio's rate limit (50 requests a minute for the connection). A 429 says how
+// long to wait (lib/clio-busy.ts). A short wait, up to BUSY_WAIT_MAX, is waited
+// out here and the call sent again, at most BUSY_RETRIES times; a longer one
+// fails the call as before, and the automation tries the step again a few
+// minutes later. Calls in the same server instance share the wait: while Clio
+// has said to wait, they aren't sent at all, so one busy sync doesn't keep
+// using up the limit (the bursts behind "Clio was busy" rows in Intake
+// Recovery, Nov 2026). A 429 means Clio didn't act on the request, so sending
+// a POST or PATCH again is safe.
+const BUSY_RETRIES = 2
+const BUSY_WAIT_MAX = 8_000
+const BUSY_WAIT_DEFAULT = 5_000
+let busyUntil = 0
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /** GET/POST/PATCH against the Clio Manage API (paths like "/api/v4/matters"). */
 export async function clioFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await getAccessToken()
-  const res = await fetch(`${CLIO_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-    cache: "no-store",
-  })
-  if (!res.ok) {
+  const method = init.method ?? "GET"
+  for (let attempt = 0; ; attempt++) {
+    const wait = busyUntil - Date.now()
+    if (wait > 0) {
+      if (wait > BUSY_WAIT_MAX) throw new Error(clioHeldBackMessage(method, path, wait))
+      // A little spread, so calls that waited together don't all go at once.
+      await sleep(wait + Math.floor(Math.random() * 400))
+    }
+    const res = await fetch(`${CLIO_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+      cache: "no-store",
+    })
+    if (res.ok) return (await res.json()) as T
     const body = (await res.text().catch(() => "")).slice(0, 300)
-    throw new Error(`Clio ${init.method ?? "GET"} ${path.split("?")[0]} failed (${res.status}) ${body}`)
+    if (res.status === 429) {
+      const ms = clioRetryAfterMs(res.headers.get("retry-after"), body) ?? BUSY_WAIT_DEFAULT
+      busyUntil = Math.max(busyUntil, Date.now() + ms)
+      if (attempt < BUSY_RETRIES && ms <= BUSY_WAIT_MAX) continue
+    }
+    throw new Error(`Clio ${method} ${path.split("?")[0]} failed (${res.status}) ${body}`)
   }
-  return (await res.json()) as T
 }
 
 /** Safe-to-render connection status (no token values). */

@@ -2,6 +2,7 @@ import "server-only"
 
 import { GROW_NOTES_FROM, growFetch, growNotesApply, growStatus } from "@/lib/grow"
 import { consultLocation } from "@/lib/attorney-zoom"
+import { growMatterGone, isGrowNumber, isGrowUlid, matchGrowUlid, ulidTime, ULID_MATCH_MS } from "@/lib/grow-ids"
 import { growNote, growState, nameDiffers, type GrowCandidate, type GrowNoteKind, type GrowNoteLead } from "@/lib/grow-note"
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { IntakeLead, IntakeStep, Json } from "@/types/database"
@@ -126,6 +127,14 @@ export async function growMattersSinceBooking(lead: GrowLead): Promise<string[]>
   return clientsMatters(lead, matters, ids).map((m) => String(m.id))
 }
 
+/** The client's Grow matter that a pasted grow.clio.com link (a ULID) stands for, or null (lib/grow-ids.ts). */
+async function growMatterForUlid(lead: GrowLead, ulid: string): Promise<GrowMatter | null> {
+  const at = ulidTime(ulid)
+  if (at == null || at > Date.now() + DAY) return null
+  const [matters, ids] = await Promise.all([mattersCreatedSince(new Date(at - 2 * ULID_MATCH_MS)), contactIds(lead)])
+  return matchGrowUlid(ulid, matters, clientsMatters(lead, matters, ids))
+}
+
 function pickMatter(lead: GrowLead, matters: GrowMatter[], ids: Set<string | number>) {
   const mine = clientsMatters(lead, matters, ids)
   const intake = mine.filter((m) => (m.status_category ?? "intake").toLowerCase() === "intake")
@@ -199,6 +208,34 @@ async function writeNote(
   if (kind === "booked") await clearStep(admin, lead.id, "grow_match")
 }
 
+/**
+ * A reschedule or cancellation note for the matter the booking note is on.
+ * When Grow answers 404 the matter was deleted or merged in Grow: the note is
+ * recorded as skipped, with the reason and the consult time it was for, so the
+ * sync stops trying it. It used to fail again on every sync until the lead was
+ * 30 days old (Nov 2026).
+ */
+async function writeFollowNote(
+  admin: Admin,
+  lead: GrowLead,
+  kind: "rescheduled" | "canceled",
+  matterId: string,
+  context: Awaited<ReturnType<typeof noteContext>>
+) {
+  try {
+    await writeNote(admin, lead, kind, matterId, context, {})
+  } catch (e) {
+    if (!(e instanceof Error) || !growMatterGone(e.message)) throw e
+    await setStep(admin, lead.id, kind === "rescheduled" ? "grow_note_rescheduled" : "grow_note_canceled", "skipped", {
+      action: "auto",
+      matter_id: matterId,
+      datetime: lead.consult_datetime,
+      why: "The Clio Grow matter the booking note is on no longer exists (deleted or merged in Grow).",
+    })
+    await clearStep(admin, lead.id, "grow_note_failed")
+  }
+}
+
 /** Bring these leads' Grow notes up to date. Returns the ids of the leads that changed. */
 export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: number } = {}): Promise<string[]> {
   const admin = createAdminClient()
@@ -220,7 +257,7 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
     try {
       if (lead.status === "canceled") {
         if (st.noted && !st.canceled) {
-          await writeNote(admin, lead, "canceled", st.noted.matterId, context, {})
+          await writeFollowNote(admin, lead, "canceled", st.noted.matterId, context)
           changed.add(lead.id)
         }
         // A canceled consult needs no matter picked any more.
@@ -235,7 +272,7 @@ export async function syncGrowNotes(leads: GrowLead[], opts: { matchLimit?: numb
         st.lastDatetime &&
         new Date(lead.consult_datetime).getTime() !== new Date(st.lastDatetime).getTime()
       ) {
-        await writeNote(admin, lead, "rescheduled", st.noted.matterId, context, {})
+        await writeFollowNote(admin, lead, "rescheduled", st.noted.matterId, context)
         changed.add(lead.id)
       }
       // Grow's client name is saved when the note goes on. Staff may rename the
@@ -321,10 +358,12 @@ export async function addGrowNoteTo(leadId: string, matterRef: string, by: strin
   const admin = createAdminClient()
   if (!admin) return { ok: false, message: "The server isn't set up for this (service key missing)." }
   if (!(await growStatus()).connected) return { ok: false, message: "Clio Grow isn't connected yet (Intake Settings)." }
-  // A Grow link (grow.clio.com/matters/<id>) or the bare id; Grow ids are ULIDs, not numbers.
+  // A Grow link (grow.clio.com/matters/<id>) or the bare id. Grow's API takes
+  // the matter's number; a link copied from the browser carries a ULID, which
+  // is first matched to the client's matter (lib/grow-ids.ts).
   const ref = matterRef.trim()
-  const matterId = ref.match(/\/matters\/([0-9A-Za-z]+)/)?.[1] ?? ref.match(/^[0-9A-Za-z]+$/)?.[0]
-  if (!matterId) return { ok: false, message: "Paste the Clio Grow matter link." }
+  const given = ref.match(/\/matters\/([0-9A-Za-z]+)/)?.[1] ?? ref.match(/^[0-9A-Za-z]+$/)?.[0]
+  if (!given || !(isGrowNumber(given) || isGrowUlid(given))) return { ok: false, message: "Paste the Clio Grow matter link." }
 
   const { data } = await admin.from("intake_leads").select(GROW_LEAD_COLUMNS).eq("id", leadId).maybeSingle()
   if (!data) return { ok: false, message: "Lead not found." }
@@ -333,6 +372,18 @@ export async function addGrowNoteTo(leadId: string, matterRef: string, by: strin
   if (done) return { ok: true, message: "The booking note is already in Clio Grow." }
 
   try {
+    let matterId = given
+    if (!isGrowNumber(given)) {
+      const found = await growMatterForUlid(lead, given)
+      // Staff's link, not a Grow failure: nothing goes to Intake Recovery.
+      if (!found)
+        return {
+          ok: false,
+          message:
+            "Couldn't match that Clio Grow link to one of this client's Grow matters (Grow's API doesn't take the id in the link). Pick the matter from the list on this step, if one is shown.",
+        }
+      matterId = String(found.id)
+    }
     const { data: matter } = await growFetch<{ data: GrowMatter }>(`/matters/${matterId}`)
     const context = await noteContext(admin, [lead])
     const { appt, office } = context(lead)

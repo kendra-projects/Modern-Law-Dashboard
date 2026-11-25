@@ -1,6 +1,7 @@
 import "server-only"
 
 import { fetchAcuityAppointment } from "@/lib/acuity"
+import { readCalendarAnswer, type CalendarGuestAnswer } from "@/lib/calendar-answer"
 import type { IntakeLead } from "@/types/database"
 
 // Kendra's walkthrough step: open the consult on the attorney's Google calendar
@@ -19,8 +20,12 @@ export function calendarGuestOn(createdAt: string) {
 
 type Lead = Pick<IntakeLead, "external_id" | "email" | "consult_datetime">
 
-/** Add the client to the consult's event. "none": no such event; "others": it has other guests. */
-export async function addCalendarGuest(lead: Lead): Promise<"added" | "already" | "others" | "none"> {
+/**
+ * Add the client to the consult's event. "others": it has other guests;
+ * "unconfirmed": Make didn't confirm a run (lib/calendar-answer.ts), so the
+ * caller tries again later.
+ */
+export async function addCalendarGuest(lead: Lead): Promise<CalendarGuestAnswer> {
   const appt = await fetchAcuityAppointment(lead.external_id!)
   if (!appt?.calendarID) throw new Error("Couldn't read the Acuity appointment.")
   const auth = Buffer.from(`${process.env.ACUITY_USER_ID}:${process.env.ACUITY_API_KEY}`).toString("base64")
@@ -46,7 +51,5 @@ export async function addCalendarGuest(lead: Lead): Promise<"added" | "already" 
     }),
     cache: "no-store",
   })
-  const answer = (await hook.text()).trim().slice(0, 200)
-  if (!hook.ok) throw new Error(`Make's calendar scenario failed (${hook.status} ${answer}).`)
-  return answer === "added" || answer === "already" || answer === "others" ? answer : "none"
+  return readCalendarAnswer(hook.status, await hook.text().catch(() => ""))
 }

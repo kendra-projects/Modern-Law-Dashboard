@@ -25,8 +25,12 @@ export async function sendMail(x: { to: string; subject: string; html: string; t
       body: JSON.stringify({ ...x, secret: process.env.MAIL_WEBHOOK_SECRET ?? "" }),
       cache: "no-store",
     })
-    const answer = (await res.text()).trim().slice(0, 200)
-    if (!res.ok || answer !== "sent") throw new Error(`Make's email scenario didn't send it (${res.status} ${answer || "no answer"}).`)
+    const answer = (await res.text().catch(() => "")).trim().slice(0, 200)
+    if (!res.ok || answer !== "sent") {
+      // "Accepted" is Make's own reply: the scenario didn't run (off or queued). The caller tries again later.
+      const why = answer === "Accepted" ? ": Make didn't run the scenario, it may be off or queued" : ""
+      throw new Error(`Make's email scenario didn't send it (${res.status} ${answer || "no answer"}${why}).`)
+    }
     return { id: "make" }
   }
 

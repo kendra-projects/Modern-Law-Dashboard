@@ -155,9 +155,12 @@ export default async function IntakeDetailPage({
           : null,
       }
     : null
+  // A reschedule or cancellation note is skipped when the Grow matter is gone (lib/grow-sync.ts).
+  const growGone = allSteps.some((x) => (x.step_key === "grow_note_rescheduled" || x.step_key === "grow_note_canceled") && x.state === "skipped")
   const growExtra = [
     lastDone("grow_note_rescheduled") ? "A reschedule note was added too." : null,
-    grow.canceled ? "A cancellation note was added too." : null,
+    lastDone("grow_note_canceled") ? "A cancellation note was added too." : null,
+    growGone ? "This Grow matter no longer exists in Clio Grow (deleted or merged), so no later note was added to it." : null,
   ].filter((x): x is string => Boolean(x))
   // Once the conflict is clear, the matter waits on the advocate in Grow (lib/grow-ready.ts).
   const growTodo = growNext(lead, Boolean(grow.noted))
